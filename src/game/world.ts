@@ -1,0 +1,119 @@
+import {
+  CELL,
+  GRID_H,
+  GRID_W,
+  type BuildingKind,
+  type Entity,
+  type EntityId,
+  type Team,
+  type Vec2,
+} from '../types';
+
+export interface World {
+  tickCount: number;
+  entities: Map<EntityId, Entity>;
+  nextId: number;
+  resources: Record<Team, number>;
+  occupancy: Int32Array;
+  selection: Set<EntityId>;
+  placement: { team: Team; buildingKind: BuildingKind } | null;
+}
+
+export function createWorld(): World {
+  const occ = new Int32Array(GRID_W * GRID_H);
+  occ.fill(-1);
+  return {
+    tickCount: 0,
+    entities: new Map(),
+    nextId: 1,
+    resources: { player: 100, enemy: 0, neutral: 0 },
+    occupancy: occ,
+    selection: new Set(),
+    placement: null,
+  };
+}
+
+export function cellIndex(cx: number, cy: number): number {
+  return cy * GRID_W + cx;
+}
+
+export function inBounds(cx: number, cy: number): boolean {
+  return cx >= 0 && cy >= 0 && cx < GRID_W && cy < GRID_H;
+}
+
+export function isCellBlocked(world: World, cx: number, cy: number): boolean {
+  if (!inBounds(cx, cy)) return true;
+  return world.occupancy[cellIndex(cx, cy)] !== -1;
+}
+
+export function setOccupancy(
+  world: World,
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+  id: EntityId,
+): void {
+  for (let y = cy; y < cy + h; y++) {
+    for (let x = cx; x < cx + w; x++) {
+      if (inBounds(x, y)) world.occupancy[cellIndex(x, y)] = id;
+    }
+  }
+}
+
+export function clearOccupancy(
+  world: World,
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+): void {
+  for (let y = cy; y < cy + h; y++) {
+    for (let x = cx; x < cx + w; x++) {
+      if (inBounds(x, y)) world.occupancy[cellIndex(x, y)] = -1;
+    }
+  }
+}
+
+export function pxToCell(p: Vec2): { x: number; y: number } {
+  return { x: Math.floor(p.x / CELL), y: Math.floor(p.y / CELL) };
+}
+
+export function cellToPx(cx: number, cy: number): Vec2 {
+  return { x: cx * CELL + CELL / 2, y: cy * CELL + CELL / 2 };
+}
+
+export function addEntity(world: World, e: Omit<Entity, 'id'>): Entity {
+  const ent: Entity = { ...e, id: world.nextId++ };
+  world.entities.set(ent.id, ent);
+  if (
+    ent.cellX !== undefined &&
+    ent.cellY !== undefined &&
+    ent.sizeW &&
+    ent.sizeH
+  ) {
+    setOccupancy(world, ent.cellX, ent.cellY, ent.sizeW, ent.sizeH, ent.id);
+  }
+  return ent;
+}
+
+export function removeEntity(world: World, id: EntityId): void {
+  const e = world.entities.get(id);
+  if (!e) return;
+  if (
+    e.cellX !== undefined &&
+    e.cellY !== undefined &&
+    e.sizeW &&
+    e.sizeH
+  ) {
+    clearOccupancy(world, e.cellX, e.cellY, e.sizeW, e.sizeH);
+  }
+  world.entities.delete(id);
+  world.selection.delete(id);
+}
+
+export function findEntitiesByTeam(world: World, team: Team): Entity[] {
+  const out: Entity[] = [];
+  for (const e of world.entities.values()) if (e.team === team) out.push(e);
+  return out;
+}
