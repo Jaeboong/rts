@@ -65,6 +65,9 @@ export function runFrame(game: Game, _dt: number): void {
   if (edges.has('f') && !world.placement && !world.attackMode) {
     beginPlacementForWorker(world, 'factory');
   }
+  if (edges.has('d') && !world.placement && !world.attackMode) {
+    beginPlacementForWorker(world, 'supplyDepot');
+  }
   // Contextual T: Worker → Turret placement (if any worker selected). If no Worker but
   // a Factory is selected, T queues a Tank instead. Worker+Factory → Worker wins.
   if (edges.has('t') && !world.placement && !world.attackMode) {

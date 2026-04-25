@@ -12,7 +12,8 @@ export type BuildingKind =
   | 'barracks'
   | 'turret'
   | 'refinery'
-  | 'factory';
+  | 'factory'
+  | 'supplyDepot';
 export type EntityKind = UnitKind | BuildingKind | 'mineralNode' | 'gasGeyser';
 
 export type Command =
@@ -88,6 +89,11 @@ export interface Entity {
 
   // Gas geyser claim (refineryId on the geyser when claimed)
   refineryId?: EntityId | null;
+  // Mineral node claim (depotId on the node when claimed by a supplyDepot)
+  depotId?: EntityId | null;
+  // Refinery → underlying gas geyser (mirror); Supply depot → underlying mineral node.
+  geyserId?: EntityId | null;
+  mineralNodeId?: EntityId | null;
   // Refinery production accumulator (seconds of gas produced fractionally)
   gasAccumulator?: number;
 

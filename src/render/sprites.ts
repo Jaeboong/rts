@@ -36,6 +36,8 @@ export type SpriteKey =
   | 'medic-healing'
   | 'enemy-dummy'
   | 'mineral'
+  | 'mineral-base'
+  | 'supply-depot'
   | 'gas-geyser';
 
 export const SPRITE_FILES: Record<SpriteKey, string> = {
@@ -73,13 +75,18 @@ export const SPRITE_FILES: Record<SpriteKey, string> = {
   'medic-healing': 'medic-healing.png',
   'enemy-dummy': 'enemy-dummy.png',
   mineral: 'mineral.png',
+  'mineral-base': 'mineral-base.png',
+  // Repurposed: the legacy mineral.png art is now the depot building visual.
+  'supply-depot': 'mineral.png',
   'gas-geyser': 'gas-geyser.png',
 };
 
 // Sprites whose gray patches must NOT be tinted by team color.
+// supplyDepot is a player BUILDING and SHOULD tint with team color, so it stays out of this set.
 const NO_TINT: ReadonlySet<SpriteKey> = new Set<SpriteKey>([
   'enemy-dummy',
   'mineral',
+  'mineral-base',
   'gas-geyser',
 ]);
 
@@ -310,13 +317,15 @@ export function pickBuildingSprite(e: Entity): SpriteKey {
       return firing ? 'turret-attack' : 'turret-idle';
     case 'refinery':
       return 'refinery';
+    case 'supplyDepot':
+      return 'supply-depot';
     default:
       return 'commandCenter-idle';
   }
 }
 
 export function pickResourceSprite(kind: 'mineralNode' | 'gasGeyser'): SpriteKey {
-  return kind === 'mineralNode' ? 'mineral' : 'gas-geyser';
+  return kind === 'mineralNode' ? 'mineral-base' : 'gas-geyser';
 }
 
 export function isTintedKind(kind: Entity['kind']): boolean {

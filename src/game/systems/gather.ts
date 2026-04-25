@@ -22,9 +22,37 @@ export function gatherSystem(world: World, dt: number): void {
     }
 
     if (e.gatherSubState === undefined) {
-      e.gatherNodeId = e.command.nodeId;
+      // Resolve gather target: depot indirection happens here so all later
+      // states reference the underlying mineralNode directly via gatherNodeId.
+      // Right-click on a supplyDepot → use its underlying mineralNode.
+      // Right-click on a raw mineralNode without a depot → no-op (gather rejected).
+      // Right-click on a mineralNode with depot → just use the node directly.
+      const target = world.entities.get(e.command.nodeId);
+      let resolvedNodeId: number | null = null;
+      if (target) {
+        if (target.kind === 'supplyDepot') {
+          if (target.mineralNodeId !== null && target.mineralNodeId !== undefined) {
+            resolvedNodeId = target.mineralNodeId;
+          }
+        } else if (target.kind === 'mineralNode') {
+          // Raw patch is gatherable only when claimed by a depot.
+          if (target.depotId !== null && target.depotId !== undefined) {
+            resolvedNodeId = target.id;
+          }
+        }
+      }
+      if (resolvedNodeId === null) {
+        // Fallback: scan for any depot-claimed node (covers depleted-target case).
+        const newNode = findNearestMineralNode(world, e);
+        if (!newNode) {
+          e.command = null;
+          continue;
+        }
+        resolvedNodeId = newNode.id;
+      }
+      e.gatherNodeId = resolvedNodeId;
       e.gatherHomeId = findNearestCC(world, e);
-      const node = world.entities.get(e.command.nodeId);
+      const node = world.entities.get(resolvedNodeId);
       if (!node || (node.remaining ?? 0) <= 0) {
         const newNode = findNearestMineralNode(world, e);
         if (!newNode) {
@@ -66,7 +94,12 @@ export function gatherSystem(world: World, dt: number): void {
           const taken = Math.min(WORKER_CARRY_CAP, node.remaining ?? 0);
           node.remaining = (node.remaining ?? 0) - taken;
           e.carrying = taken;
-          if ((node.remaining ?? 0) <= 0) node.dead = true;
+          // A depleted node that has a supplyDepot on it must NOT be marked dead:
+          // removeEntity would clearOccupancy and zero the depot's footprint cells.
+          // The depot is meaningless without ore and stays standing as visual debris.
+          if ((node.remaining ?? 0) <= 0 && (node.depotId === null || node.depotId === undefined)) {
+            node.dead = true;
+          }
           walkToHome(world, e);
         }
         break;
@@ -171,6 +204,7 @@ function autoRepathOrIdle(world: World, w: Entity): void {
 }
 
 // Boundary is inclusive: a node exactly at radius * CELL pixels still counts.
+// Only depot-claimed nodes are considered: raw patches without a depot can't be gathered.
 function findNearestMineralInRadius(world: World, w: Entity): Entity | null {
   const maxD2 = (WORKER_AUTO_REPATH_RADIUS * CELL) * (WORKER_AUTO_REPATH_RADIUS * CELL);
   let best: Entity | null = null;
@@ -178,6 +212,7 @@ function findNearestMineralInRadius(world: World, w: Entity): Entity | null {
   for (const e of world.entities.values()) {
     if (e.kind !== 'mineralNode') continue;
     if ((e.remaining ?? 0) <= 0) continue;
+    if (e.depotId === null || e.depotId === undefined) continue;
     const dx = e.pos.x - w.pos.x;
     const dy = e.pos.y - w.pos.y;
     const d2 = dx * dx + dy * dy;
@@ -191,12 +226,14 @@ function findNearestMineralInRadius(world: World, w: Entity): Entity | null {
 }
 
 // Unbounded fallback for the initial-setup branch (user clicked an already-dead node).
+// Only depot-claimed nodes count — raw patches require a depot built on top to gather.
 function findNearestMineralNode(world: World, w: Entity): Entity | null {
   let best: Entity | null = null;
   let bestD2 = Infinity;
   for (const e of world.entities.values()) {
     if (e.kind !== 'mineralNode') continue;
     if ((e.remaining ?? 0) <= 0) continue;
+    if (e.depotId === null || e.depotId === undefined) continue;
     const dx = e.pos.x - w.pos.x;
     const dy = e.pos.y - w.pos.y;
     const d2 = dx * dx + dy * dy;

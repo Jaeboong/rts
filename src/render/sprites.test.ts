@@ -12,8 +12,16 @@ import {
 } from './sprites';
 
 describe('SPRITE_FILES catalog', () => {
-  it('has 35 entries (24 prior - 1 old marine-attack + 5 marine-attack frames + 1 tank-light + 6 tank-light-attack frames)', () => {
-    expect(Object.keys(SPRITE_FILES)).toHaveLength(35);
+  it('has 37 entries (35 prior + mineral-base + supply-depot)', () => {
+    expect(Object.keys(SPRITE_FILES)).toHaveLength(37);
+  });
+
+  it('includes mineral-base (raw patch) and supply-depot (building) keys', () => {
+    expect(SPRITE_FILES).toHaveProperty('mineral-base');
+    expect(SPRITE_FILES['mineral-base']).toBe('mineral-base.png');
+    expect(SPRITE_FILES).toHaveProperty('supply-depot');
+    // Repurposes the legacy mineral.png as the depot building sprite.
+    expect(SPRITE_FILES['supply-depot']).toBe('mineral.png');
   });
 
   it('every value ends in .png', () => {
@@ -250,6 +258,12 @@ describe('pickBuildingSprite', () => {
     expect(pickBuildingSprite(b)).toBe<SpriteKey>('refinery');
   });
 
+  it('SupplyDepot → supply-depot (no producing variant)', () => {
+    const w = createWorld();
+    const b = spawnBuilding(w, 'supplyDepot', 'player', 5, 5);
+    expect(pickBuildingSprite(b)).toBe<SpriteKey>('supply-depot');
+  });
+
   it('Turret no recent fire → turret-idle', () => {
     const w = createWorld();
     const b = spawnBuilding(w, 'turret', 'player', 5, 5);
@@ -265,8 +279,8 @@ describe('pickBuildingSprite', () => {
 });
 
 describe('pickResourceSprite', () => {
-  it('mineralNode → mineral, gasGeyser → gas-geyser', () => {
-    expect(pickResourceSprite('mineralNode')).toBe<SpriteKey>('mineral');
+  it('mineralNode → mineral-base (raw patch art), gasGeyser → gas-geyser', () => {
+    expect(pickResourceSprite('mineralNode')).toBe<SpriteKey>('mineral-base');
     expect(pickResourceSprite('gasGeyser')).toBe<SpriteKey>('gas-geyser');
   });
 });
@@ -282,6 +296,7 @@ describe('isTintedKind', () => {
     expect(isTintedKind('factory')).toBe(true);
     expect(isTintedKind('turret')).toBe(true);
     expect(isTintedKind('refinery')).toBe(true);
+    expect(isTintedKind('supplyDepot')).toBe(true);
   });
 
   it('skips tint for resource nodes and enemyDummy', () => {

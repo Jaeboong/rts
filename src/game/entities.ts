@@ -93,6 +93,10 @@ export function spawnBuilding(
   }
   if (kind === 'refinery') {
     ent.gasAccumulator = 0;
+    ent.geyserId = null;
+  }
+  if (kind === 'supplyDepot') {
+    ent.mineralNodeId = null;
   }
   return addEntity(world, ent);
 }
@@ -114,6 +118,7 @@ export function spawnMineralNode(
     sizeW: 5,
     sizeH: 5,
     remaining,
+    depotId: null,
   });
 }
 

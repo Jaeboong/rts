@@ -32,6 +32,9 @@ export const BUILDING_DEFS: Record<BuildingKind, BuildingDef> = {
   // Refinery footprint matches the 5×5 geyser exactly — TL aligned, cells overlap.
   refinery: { hp: 800, w: 5, h: 5, buildSeconds: 15, cost: 100 },
   factory: { hp: 1200, w: 10, h: 9, buildSeconds: 25, cost: 400, gasCost: 200 },
+  // Supply depot footprint matches the 5×5 mineralNode exactly — TL aligned, cells overlap.
+  // Free (cost 0) — gating is structural, not resource-based: must have a node to build on.
+  supplyDepot: { hp: 600, w: 5, h: 5, buildSeconds: 10, cost: 0 },
 };
 
 // Units --------------------------------------------------------------------

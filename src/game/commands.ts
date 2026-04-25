@@ -1,4 +1,4 @@
-import { CELL, GRID_W, type BuildingKind, type Command, type Entity, type UnitKind, type Vec2 } from '../types';
+import { CELL, type BuildingKind, type Command, type Entity, type UnitKind, type Vec2 } from '../types';
 import type { UIAction } from '../render/ui';
 import {
   BUILDING_DEFS,
@@ -9,8 +9,17 @@ import {
 import { displaceUnitsFromFootprint } from './displacement';
 import { spawnBuilding } from './entities';
 import type { Game } from './loop';
+import {
+  canPlaceRefinery,
+  canPlaceSupplyDepot,
+  unclaimedGeyserAt,
+  unclaimedMineralNodeAt,
+} from './placement';
 import { pickEntityAt } from './selection';
 import { cellToPx, inBounds, isCellBlocked, pxToCell, type World } from './world';
+
+// Re-export for downstream consumers (renderer, tests) that imported these from './commands'.
+export { canPlaceRefinery, canPlaceSupplyDepot, unclaimedGeyserAt, unclaimedMineralNodeAt };
 
 const CLAMP_SEARCH_RADIUS = 10;
 
@@ -123,6 +132,7 @@ export function issueUIAction(game: Game, action: ExtendedUIAction): void {
       let cellX: number;
       let cellY: number;
       let claimedGeyser: Entity | null = null;
+      let claimedMineralNode: Entity | null = null;
       if (kind === 'refinery') {
         const geyser = unclaimedGeyserAt(world, clickCellX, clickCellY);
         if (!geyser) return;
@@ -131,6 +141,14 @@ export function issueUIAction(game: Game, action: ExtendedUIAction): void {
         cellY = geyser.cellY!;
         if (!canPlaceRefinery(world, cellX, cellY, geyser.id)) return;
         claimedGeyser = geyser;
+      } else if (kind === 'supplyDepot') {
+        const node = unclaimedMineralNodeAt(world, clickCellX, clickCellY);
+        if (!node) return;
+        // SupplyDepot 5×5 footprint snaps onto the mineralNode's 5×5 footprint exactly.
+        cellX = node.cellX!;
+        cellY = node.cellY!;
+        if (!canPlaceSupplyDepot(world, cellX, cellY, node.id)) return;
+        claimedMineralNode = node;
       } else {
         cellX = clickCellX - Math.floor(def.w / 2);
         cellY = clickCellY - Math.floor(def.h / 2);
@@ -145,7 +163,14 @@ export function issueUIAction(game: Game, action: ExtendedUIAction): void {
       world.resources.player -= def.cost;
       if (gasCost > 0) world.gas -= gasCost;
       const site = spawnBuilding(world, kind, 'player', cellX, cellY, false);
-      if (claimedGeyser) claimedGeyser.refineryId = site.id;
+      if (claimedGeyser) {
+        claimedGeyser.refineryId = site.id;
+        site.geyserId = claimedGeyser.id;
+      }
+      if (claimedMineralNode) {
+        claimedMineralNode.depotId = site.id;
+        site.mineralNodeId = claimedMineralNode.id;
+      }
       // Displace before assigning worker.command so a worker inside the footprint
       // is teleported out, then immediately given its build command.
       displaceUnitsFromFootprint(world, cellX, cellY, def.w, def.h);
@@ -156,53 +181,6 @@ export function issueUIAction(game: Game, action: ExtendedUIAction): void {
       return;
     }
   }
-}
-
-/**
- * Returns an unclaimed geyser whose 5×5 footprint covers (cx, cy), or null.
- */
-export function unclaimedGeyserAt(
-  world: World,
-  cx: number,
-  cy: number,
-): Entity | null {
-  for (const e of world.entities.values()) {
-    if (e.kind !== 'gasGeyser') continue;
-    if (e.refineryId !== null && e.refineryId !== undefined) continue;
-    if (e.cellX === undefined || e.cellY === undefined) continue;
-    if (
-      cx >= e.cellX &&
-      cx < e.cellX + (e.sizeW ?? 0) &&
-      cy >= e.cellY &&
-      cy < e.cellY + (e.sizeH ?? 0)
-    ) {
-      return e;
-    }
-  }
-  return null;
-}
-
-/**
- * Refinery valid: every cell of its 5×5 footprint (TL aligned with the geyser)
- * is either the geyser itself or unblocked.
- */
-export function canPlaceRefinery(
-  world: World,
-  cellX: number,
-  cellY: number,
-  geyserId: number,
-): boolean {
-  const def = BUILDING_DEFS.refinery;
-  for (let y = cellY; y < cellY + def.h; y++) {
-    for (let x = cellX; x < cellX + def.w; x++) {
-      if (!inBounds(x, y)) return false;
-      const occ = world.occupancy[y * GRID_W + x];
-      if (occ === -1) continue;
-      if (occ === geyserId) continue;
-      return false;
-    }
-  }
-  return true;
 }
 
 export function canPlace(
@@ -374,7 +352,10 @@ export function chooseUnitCommand(
       }
       return { type: 'attack', targetId: target.id };
     }
-    if (target.kind === 'mineralNode' && unit.kind === 'worker') {
+    if (
+      (target.kind === 'mineralNode' || target.kind === 'supplyDepot') &&
+      unit.kind === 'worker'
+    ) {
       return { type: 'gather', nodeId: target.id };
     }
     if (
@@ -453,6 +434,7 @@ function isBuilding(e: Entity): e is Entity & { kind: BuildingKind } {
     e.kind === 'barracks' ||
     e.kind === 'turret' ||
     e.kind === 'refinery' ||
-    e.kind === 'factory'
+    e.kind === 'factory' ||
+    e.kind === 'supplyDepot'
   );
 }

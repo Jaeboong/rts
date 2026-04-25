@@ -8,7 +8,13 @@ import {
   type Vec2,
 } from '../types';
 import { BUILDING_DEFS } from '../game/balance';
-import { canPlace, canPlaceRefinery, unclaimedGeyserAt } from '../game/commands';
+import {
+  canPlace,
+  canPlaceRefinery,
+  canPlaceSupplyDepot,
+  unclaimedGeyserAt,
+  unclaimedMineralNodeAt,
+} from '../game/commands';
 import { drawTileBackground } from '../game/map/tile-render';
 import type { AutotileAtlas } from '../game/map/tiles';
 import type { World } from '../game/world';
@@ -107,6 +113,25 @@ export function computePlacementPreview(
       valid: false,
     };
   }
+  if (kind === 'supplyDepot') {
+    const node = unclaimedMineralNodeAt(world, clickCellX, clickCellY);
+    if (node && node.cellX !== undefined && node.cellY !== undefined) {
+      return {
+        cellX: node.cellX,
+        cellY: node.cellY,
+        sizeW: def.w,
+        sizeH: def.h,
+        valid: canPlaceSupplyDepot(world, node.cellX, node.cellY, node.id),
+      };
+    }
+    return {
+      cellX: clickCellX,
+      cellY: clickCellY,
+      sizeW: def.w,
+      sizeH: def.h,
+      valid: false,
+    };
+  }
   const cellX = clickCellX - Math.floor(def.w / 2);
   const cellY = clickCellY - Math.floor(def.h / 2);
   return {
@@ -185,6 +210,8 @@ function drawMineralNodes(
     if (e.cellX === undefined || e.cellY === undefined || !e.sizeW || !e.sizeH) {
       continue;
     }
+    // Hide nodes claimed by a supplyDepot — depot draws on top of them.
+    if (e.depotId !== null && e.depotId !== undefined) continue;
     const x0 = e.cellX * CELL;
     const y0 = e.cellY * CELL;
     const w = e.sizeW * CELL;
@@ -394,7 +421,8 @@ function isBuilding(e: Entity): boolean {
     e.kind === 'barracks' ||
     e.kind === 'turret' ||
     e.kind === 'refinery' ||
-    e.kind === 'factory'
+    e.kind === 'factory' ||
+    e.kind === 'supplyDepot'
   );
 }
 

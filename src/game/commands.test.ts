@@ -3,6 +3,7 @@ import { CELL, GRID_H, GRID_W } from '../types';
 import { canBuildingProduceUnits } from './balance';
 import {
   canPlaceRefinery,
+  canPlaceSupplyDepot,
   chooseAttackModeCommand,
   chooseUnitCommand,
   clampMoveTargetToWalkable,
@@ -11,6 +12,7 @@ import {
   issueUIAction,
   tryEnterAttackMode,
   unclaimedGeyserAt,
+  unclaimedMineralNodeAt,
 } from './commands';
 import { displaceUnitsFromFootprint } from './displacement';
 import {
@@ -482,6 +484,111 @@ describe('displaceUnitsFromFootprint', () => {
   });
 });
 
+describe('supplyDepot placement', () => {
+  it('unclaimedMineralNodeAt returns node when click cell falls in its 5×5 footprint', () => {
+    const w = createWorld();
+    const node = spawnMineralNode(w, 30, 30, 1500);
+    expect(unclaimedMineralNodeAt(w, 30, 30)).toBe(node);
+    expect(unclaimedMineralNodeAt(w, 32, 32)).toBe(node);
+    expect(unclaimedMineralNodeAt(w, 34, 34)).toBe(node);
+    expect(unclaimedMineralNodeAt(w, 29, 30)).toBeNull();
+    expect(unclaimedMineralNodeAt(w, 35, 30)).toBeNull();
+  });
+
+  it('unclaimedMineralNodeAt skips nodes already claimed by a depot', () => {
+    const w = createWorld();
+    const node = spawnMineralNode(w, 30, 30, 1500);
+    node.depotId = 999;
+    expect(unclaimedMineralNodeAt(w, 30, 30)).toBeNull();
+  });
+
+  it('canPlaceSupplyDepot: valid when 5×5 around node TL only contains node cells', () => {
+    const w = createWorld();
+    const node = spawnMineralNode(w, 30, 30, 1500);
+    expect(canPlaceSupplyDepot(w, 30, 30, node.id)).toBe(true);
+  });
+
+  it('canPlaceSupplyDepot: invalid when a footprint cell is occupied by something other than the node', () => {
+    const w = createWorld();
+    const node = spawnMineralNode(w, 30, 30, 1500);
+    setOccupancy(w, 30, 30, 1, 1, 999);
+    expect(canPlaceSupplyDepot(w, 30, 30, node.id)).toBe(false);
+  });
+
+  it('confirmPlacement: supplyDepot on mineral node → spawns depot at node TL, claims node, free', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(20, 20));
+    w.selection.add(worker.id);
+    const node = spawnMineralNode(w, 30, 30, 1500);
+    w.placement = { team: 'player', buildingKind: 'supplyDepot' };
+    const before = w.resources.player;
+    issueUIAction(makeGame(w), {
+      type: 'confirmPlacement',
+      x: 30 * CELL + 4,
+      y: 30 * CELL + 4,
+    });
+    expect(w.placement).toBeNull();
+    // Free: no mineral cost.
+    expect(w.resources.player).toBe(before);
+    expect(node.depotId).not.toBeNull();
+    const depot = [...w.entities.values()].find((e) => e.kind === 'supplyDepot');
+    expect(depot).toBeDefined();
+    expect(depot!.cellX).toBe(30);
+    expect(depot!.cellY).toBe(30);
+    expect(depot!.mineralNodeId).toBe(node.id);
+    expect(node.depotId).toBe(depot!.id);
+  });
+
+  it('confirmPlacement: supplyDepot on empty cell → no-op (no spawn, no cost)', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(20, 20));
+    w.selection.add(worker.id);
+    w.placement = { team: 'player', buildingKind: 'supplyDepot' };
+    const sizeBefore = w.entities.size;
+    issueUIAction(makeGame(w), {
+      type: 'confirmPlacement',
+      x: 50 * CELL + 4,
+      y: 50 * CELL + 4,
+    });
+    expect(w.entities.size).toBe(sizeBefore);
+    expect(w.placement).not.toBeNull();
+  });
+
+  it('confirmPlacement: supplyDepot on already-claimed node → no-op', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(20, 20));
+    w.selection.add(worker.id);
+    const node = spawnMineralNode(w, 30, 30, 1500);
+    node.depotId = 999;
+    w.placement = { team: 'player', buildingKind: 'supplyDepot' };
+    const sizeBefore = w.entities.size;
+    issueUIAction(makeGame(w), {
+      type: 'confirmPlacement',
+      x: 30 * CELL + 4,
+      y: 30 * CELL + 4,
+    });
+    expect(w.entities.size).toBe(sizeBefore);
+  });
+});
+
+describe('chooseUnitCommand: supplyDepot gather', () => {
+  it('worker right-click on supplyDepot → gather command (depot ID as nodeId)', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(5, 5));
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30);
+    const cmd = chooseUnitCommand(w, worker, depot, depot.pos.x, depot.pos.y, false);
+    expect(cmd).toEqual({ type: 'gather', nodeId: depot.id });
+  });
+
+  it('worker right-click on raw mineralNode → gather command (still emits, depot lookup happens in gather system)', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(5, 5));
+    const node = spawnMineralNode(w, 30, 30, 1500);
+    const cmd = chooseUnitCommand(w, worker, node, node.pos.x, node.pos.y, false);
+    expect(cmd).toEqual({ type: 'gather', nodeId: node.id });
+  });
+});
+
 describe('canBuildingProduceUnits (derived from UNIT_PRODUCTION)', () => {
   it('commandCenter → true (produces worker)', () => {
     expect(canBuildingProduceUnits('commandCenter')).toBe(true);
@@ -501,6 +608,10 @@ describe('canBuildingProduceUnits (derived from UNIT_PRODUCTION)', () => {
 
   it('turret → false (no producible unit)', () => {
     expect(canBuildingProduceUnits('turret')).toBe(false);
+  });
+
+  it('supplyDepot → false (no producible unit)', () => {
+    expect(canBuildingProduceUnits('supplyDepot')).toBe(false);
   });
 });
 

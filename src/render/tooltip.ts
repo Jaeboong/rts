@@ -25,6 +25,7 @@ const BUILDING_DISPLAY_NAME: Record<BuildingKind, string> = {
   turret: 'Turret',
   refinery: 'Refinery',
   factory: 'Factory',
+  supplyDepot: 'Supply Depot',
 };
 
 // Source of truth for "which letter triggers which action" — for tooltip display only.
@@ -39,6 +40,7 @@ export const ACTION_HOTKEYS: Readonly<Record<string, string>> = {
   'build-turret': 'T',
   'build-refinery': 'R',
   'build-factory': 'F',
+  'build-supplyDepot': 'D',
   cancelPlacement: 'Esc',
 };
 

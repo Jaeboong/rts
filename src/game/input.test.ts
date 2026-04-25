@@ -417,6 +417,38 @@ describe('refinery / factory hotkeys via runFrame', () => {
     runFrame(makeGame(w, input2), 16);
     expect(w.placement).toBeNull();
   });
+
+  it("Worker selected + 'd' edge → placement mode = supplyDepot", () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(10, 10));
+    w.selection.add(worker.id);
+    const input = makeInput();
+    input.keyDownEdges.add('d');
+    runFrame(makeGame(w, input), 16);
+    expect(w.placement).not.toBeNull();
+    expect(w.placement!.buildingKind).toBe('supplyDepot');
+  });
+
+  it("Marine selected (no Worker) + 'd' edge → no-op", () => {
+    const w = createWorld();
+    const marine = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    w.selection.add(marine.id);
+    const input = makeInput();
+    input.keyDownEdges.add('d');
+    runFrame(makeGame(w, input), 16);
+    expect(w.placement).toBeNull();
+  });
+
+  it("'d' edge while placement active → no-op", () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(10, 10));
+    w.selection.add(worker.id);
+    w.placement = { team: 'player', buildingKind: 'barracks' };
+    const input = makeInput();
+    input.keyDownEdges.add('d');
+    runFrame(makeGame(w, input), 16);
+    expect(w.placement!.buildingKind).toBe('barracks');
+  });
 });
 
 describe('contextual T hotkey (Worker→Turret, Factory→Tank)', () => {

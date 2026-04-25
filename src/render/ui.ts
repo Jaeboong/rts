@@ -376,7 +376,13 @@ function computeButtons(
     );
   }
   if (e.kind === 'worker') {
-    for (const k of ['barracks', 'turret', 'refinery', 'factory'] as BuildingKind[]) {
+    for (const k of [
+      'barracks',
+      'turret',
+      'refinery',
+      'factory',
+      'supplyDepot',
+    ] as BuildingKind[]) {
       const def = BUILDING_DEFS[k];
       const gas = def.gasCost ?? 0;
       addBtn(

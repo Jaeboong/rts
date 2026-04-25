@@ -158,6 +158,7 @@ function isBuilding(e: Entity): e is Entity & { kind: BuildingKind } {
     e.kind === 'barracks' ||
     e.kind === 'turret' ||
     e.kind === 'refinery' ||
-    e.kind === 'factory'
+    e.kind === 'factory' ||
+    e.kind === 'supplyDepot'
   );
 }
