@@ -1,68 +1,6 @@
 import { CELL, type BuildingKind, type Entity, type Team, type UnitKind, type Vec2 } from '../types';
+import { BUILDING_DEFS, UNIT_DEFS } from './balance';
 import { addEntity, cellToPx, type World } from './world';
-
-export interface UnitDef {
-  hp: number;
-  speed: number;
-  radius: number;
-  attackRange?: number;
-  attackDamage?: number;
-  attackInterval?: number;
-}
-
-export const UNIT_DEFS: Record<UnitKind, UnitDef> = {
-  worker: { hp: 40, speed: 80, radius: 10 },
-  marine: {
-    hp: 60,
-    speed: 70,
-    radius: 10,
-    attackRange: 5 * CELL,
-    attackDamage: 6,
-    attackInterval: 1,
-  },
-  enemyDummy: { hp: 100, speed: 0, radius: 12 },
-};
-
-export interface BuildingDef {
-  hp: number;
-  w: number;
-  h: number;
-  buildSeconds: number;
-  cost: number;
-  attackRange?: number;
-  attackDamage?: number;
-  attackInterval?: number;
-}
-
-export const BUILDING_DEFS: Record<BuildingKind, BuildingDef> = {
-  commandCenter: { hp: 1500, w: 4, h: 4, buildSeconds: 0, cost: 0 },
-  barracks: { hp: 1000, w: 3, h: 3, buildSeconds: 20, cost: 150 },
-  turret: {
-    hp: 200,
-    w: 2,
-    h: 2,
-    buildSeconds: 15,
-    cost: 100,
-    attackRange: 6 * CELL,
-    attackDamage: 8,
-    attackInterval: 1,
-  },
-};
-
-export interface ProductionDef {
-  cost: number;
-  seconds: number;
-  producer: BuildingKind;
-}
-
-export const UNIT_PRODUCTION: Partial<Record<UnitKind, ProductionDef>> = {
-  worker: { cost: 50, seconds: 12, producer: 'commandCenter' },
-  marine: { cost: 50, seconds: 15, producer: 'barracks' },
-};
-
-export const WORKER_CARRY_CAP = 5;
-export const MINING_SECONDS = 1.5;
-export const DEPOSIT_SECONDS = 0.2;
 
 export function spawnUnit(
   world: World,
@@ -89,8 +27,28 @@ export function spawnUnit(
     ent.attackDamage = def.attackDamage;
     ent.attackInterval = def.attackInterval;
   }
+  if (def.sightRange !== undefined) {
+    ent.sightRange = def.sightRange;
+  }
   if (kind === 'worker') {
     ent.carrying = 0;
+  }
+  if (kind === 'medic') {
+    ent.healRate = def.healRate;
+    ent.healRange = def.healRange;
+    ent.healSubState = 'idle';
+    ent.healTargetId = null;
+    ent.healTimer = 0;
+  }
+  // enemyDummy is static — no facing. Worker/marine/tank/tank-light/medic rotate visually.
+  if (
+    kind === 'worker' ||
+    kind === 'marine' ||
+    kind === 'tank' ||
+    kind === 'tank-light' ||
+    kind === 'medic'
+  ) {
+    ent.facing = 0;
   }
   return addEntity(world, ent);
 }
@@ -130,6 +88,12 @@ export function spawnBuilding(
     ent.attackDamage = def.attackDamage;
     ent.attackInterval = def.attackInterval;
   }
+  if (def.sightRange !== undefined) {
+    ent.sightRange = def.sightRange;
+  }
+  if (kind === 'refinery') {
+    ent.gasAccumulator = 0;
+  }
   return addEntity(world, ent);
 }
 
@@ -147,8 +111,27 @@ export function spawnMineralNode(
     hpMax: 1,
     cellX,
     cellY,
-    sizeW: 1,
-    sizeH: 1,
+    sizeW: 5,
+    sizeH: 5,
     remaining,
+  });
+}
+
+export function spawnGasGeyser(
+  world: World,
+  cellX: number,
+  cellY: number,
+): Entity {
+  return addEntity(world, {
+    kind: 'gasGeyser',
+    team: 'neutral',
+    pos: cellToPx(cellX, cellY),
+    hp: 1,
+    hpMax: 1,
+    cellX,
+    cellY,
+    sizeW: 5,
+    sizeH: 5,
+    refineryId: null,
   });
 }

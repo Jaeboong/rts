@@ -1,8 +1,15 @@
-import type { Entity, EntityId } from '../../types';
+import { CELL, type Entity, type EntityId } from '../../types';
 import { requestPath, shouldRepath } from './movement';
 import type { World } from '../world';
 
 export function combatSystem(world: World, dt: number): void {
+  // Tick attack-effect timers on all entities (incl. those without attackRange).
+  // Decoupled from the attack loop so a combatant that just lost its target still cools.
+  for (const e of world.entities.values()) {
+    if (e.attackEffectMs && e.attackEffectMs > 0) {
+      e.attackEffectMs = Math.max(0, e.attackEffectMs - dt * 1000);
+    }
+  }
   for (const e of world.entities.values()) {
     if (e.attackRange === undefined) continue;
     if (e.dead) continue;
@@ -27,7 +34,7 @@ export function combatSystem(world: World, dt: number): void {
         const d = dist(e, target);
         if (d <= e.attackRange) {
           e.path = null;
-        } else if ((!e.path || e.path.length === 0) && shouldRepath(e.id)) {
+        } else if (isPathStale(e, target) && shouldRepath(e.id)) {
           requestPath(world, e, target.pos, target.id);
         }
       }
@@ -44,6 +51,23 @@ export function combatSystem(world: World, dt: number): void {
       }
     }
 
+    // Idle auto-approach: sighted but out of attackRange → chase (transient, no command).
+    // Guarded on speed>0 so static turrets don't request paths.
+    if (
+      !e.command &&
+      target &&
+      !target.dead &&
+      e.speed !== undefined &&
+      e.speed > 0
+    ) {
+      const d = dist(e, target);
+      if (d <= e.attackRange) {
+        e.path = null;
+      } else if (isPathStale(e, target) && shouldRepath(e.id)) {
+        requestPath(world, e, target.pos, target.id);
+      }
+    }
+
     if (!target || target.dead) {
       e.attackTargetId = null;
       e.attackCooldown = Math.max(0, (e.attackCooldown ?? 0) - dt);
@@ -57,33 +81,46 @@ export function combatSystem(world: World, dt: number): void {
       continue;
     }
 
-    // In range: tick cooldown and fire
+    // In range: face target, then tick cooldown and fire.
+    if (e.facing !== undefined) {
+      e.facing = Math.atan2(target.pos.y - e.pos.y, target.pos.x - e.pos.x);
+    }
     e.attackCooldown = (e.attackCooldown ?? 0) - dt;
     if (e.attackCooldown <= 0) {
       target.hp -= e.attackDamage ?? 0;
       e.attackCooldown = e.attackInterval ?? 1;
+      e.attackEffectMs = 200;
       if (target.hp <= 0) target.dead = true;
     }
   }
 }
 
 function autoAcquire(world: World, e: Entity): EntityId | null {
-  const range = e.attackRange ?? 0;
+  const range = e.sightRange ?? e.attackRange ?? 0;
   let bestId: EntityId | null = null;
-  let bestD2 = range * range;
+  let bestD = range;
   for (const other of world.entities.values()) {
     if (other.id === e.id) continue;
     if (other.dead) continue;
     if (!isHostile(e, other)) continue;
-    const dx = other.pos.x - e.pos.x;
-    const dy = other.pos.y - e.pos.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 <= bestD2) {
+    const d = dist(e, other);
+    if (d <= bestD) {
       bestId = other.id;
-      bestD2 = d2;
+      bestD = d;
     }
   }
   return bestId;
+}
+
+// Path is stale if missing/empty OR target drifted ≥ 1 cell from where the path was aimed.
+function isPathStale(e: Entity, target: Entity): boolean {
+  if (!e.path || e.path.length === 0) return true;
+  if (!e.pathTargetCell) return true;
+  const aimedX = e.pathTargetCell.x * CELL + CELL / 2;
+  const aimedY = e.pathTargetCell.y * CELL + CELL / 2;
+  const dx = target.pos.x - aimedX;
+  const dy = target.pos.y - aimedY;
+  return dx * dx + dy * dy > CELL * CELL;
 }
 
 function isHostile(self: Entity, other: Entity): boolean {
@@ -93,6 +130,39 @@ function isHostile(self: Entity, other: Entity): boolean {
   return true;
 }
 
+// AABB-edge distance: for buildings/resources (cell footprint), distance is
+// from the nearest edge — not the center. So a Marine with 160px range can
+// shoot a 320px-wide CC from outside the footprint instead of needing to be
+// at the unreachable interior center. Point entities (units) degenerate to
+// pos-pos which gives the same result as center-to-center.
 function dist(a: Entity, b: Entity): number {
-  return Math.hypot(b.pos.x - a.pos.x, b.pos.y - a.pos.y);
+  const ar = entityRect(a);
+  const br = entityRect(b);
+  const dx = Math.max(0, ar.left - br.right, br.left - ar.right);
+  const dy = Math.max(0, ar.top - br.bottom, br.top - ar.bottom);
+  return Math.hypot(dx, dy);
+}
+
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+function entityRect(e: Entity): Rect {
+  if (
+    e.cellX !== undefined &&
+    e.cellY !== undefined &&
+    e.sizeW !== undefined &&
+    e.sizeH !== undefined
+  ) {
+    return {
+      left: e.cellX * CELL,
+      top: e.cellY * CELL,
+      right: (e.cellX + e.sizeW) * CELL,
+      bottom: (e.cellY + e.sizeH) * CELL,
+    };
+  }
+  return { left: e.pos.x, top: e.pos.y, right: e.pos.x, bottom: e.pos.y };
 }

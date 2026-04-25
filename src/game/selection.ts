@@ -1,4 +1,4 @@
-import { CELL, type Entity } from '../types';
+import { CELL, type BuildingKind, type Entity } from '../types';
 import type { World } from './world';
 
 export function clearSelection(world: World): void {
@@ -17,8 +17,13 @@ export function applyClick(
     return;
   }
   if (shift) {
-    if (world.selection.has(hit.id)) world.selection.delete(hit.id);
-    else world.selection.add(hit.id);
+    if (world.selection.has(hit.id)) {
+      world.selection.delete(hit.id);
+    } else {
+      world.selection.add(hit.id);
+      // Shift-add of a building: the new building wins; drop existing buildings of other kinds.
+      if (isBuilding(hit)) normalizeBuildingsKeepKind(world, hit.kind);
+    }
   } else {
     world.selection.clear();
     world.selection.add(hit.id);
@@ -40,15 +45,13 @@ export function applyDragBox(
 
   const ids: number[] = [];
   for (const e of world.entities.values()) {
-    if (!isSelectableUnit(e)) continue;
-    if (e.team !== 'player') continue; // drag selects own units only
+    if (!isUnit(e) && !isBuilding(e)) continue;
+    if (e.team !== 'player') continue; // drag selects own entities only
     if (e.pos.x >= x0 && e.pos.x <= x1 && e.pos.y >= y0 && e.pos.y <= y1) {
       ids.push(e.id);
     }
   }
 
-  // If the drag selected nothing belonging to the player, fall through:
-  // try player buildings too (still own only).
   if (ids.length === 0) {
     if (!shift) world.selection.clear();
     return;
@@ -56,6 +59,41 @@ export function applyDragBox(
 
   if (!shift) world.selection.clear();
   for (const id of ids) world.selection.add(id);
+  normalizeBuildingsToFirstKind(world);
+}
+
+/**
+ * Same-kind multi-select rule for buildings:
+ * if the selection holds buildings of more than one kind, keep only the first kind
+ * (by world.entities iteration order = spawn order). Units are unaffected.
+ */
+function normalizeBuildingsToFirstKind(world: World): void {
+  let keep: BuildingKind | null = null;
+  let mixed = false;
+  for (const id of world.selection) {
+    const e = world.entities.get(id);
+    if (!e || !isBuilding(e)) continue;
+    if (keep === null) {
+      keep = e.kind;
+    } else if (e.kind !== keep) {
+      mixed = true;
+      break;
+    }
+  }
+  if (mixed && keep !== null) normalizeBuildingsKeepKind(world, keep);
+}
+
+/**
+ * Drops selected buildings whose kind differs from `keep`. Units untouched.
+ */
+function normalizeBuildingsKeepKind(world: World, keep: BuildingKind): void {
+  const drop: number[] = [];
+  for (const id of world.selection) {
+    const e = world.entities.get(id);
+    if (!e || !isBuilding(e)) continue;
+    if (e.kind !== keep) drop.push(id);
+  }
+  for (const id of drop) world.selection.delete(id);
 }
 
 export function pickEntityAt(
@@ -81,7 +119,7 @@ export function pickEntityAt(
 function priority(e: Entity): number {
   if (isUnit(e)) return 3;
   if (isBuilding(e)) return 2;
-  if (e.kind === 'mineralNode') return 1;
+  if (e.kind === 'mineralNode' || e.kind === 'gasGeyser') return 1;
   return 0;
 }
 
@@ -90,7 +128,7 @@ function hitTest(e: Entity, wx: number, wy: number): boolean {
     const r = e.radius ?? 10;
     return Math.hypot(wx - e.pos.x, wy - e.pos.y) <= r + 2;
   }
-  if (isBuilding(e) || e.kind === 'mineralNode') {
+  if (isBuilding(e) || e.kind === 'mineralNode' || e.kind === 'gasGeyser') {
     if (e.cellX === undefined || e.cellY === undefined || !e.sizeW || !e.sizeH) {
       return false;
     }
@@ -104,15 +142,22 @@ function hitTest(e: Entity, wx: number, wy: number): boolean {
 }
 
 function isUnit(e: Entity): boolean {
-  return e.kind === 'worker' || e.kind === 'marine' || e.kind === 'enemyDummy';
-}
-
-function isBuilding(e: Entity): boolean {
   return (
-    e.kind === 'commandCenter' || e.kind === 'barracks' || e.kind === 'turret'
+    e.kind === 'worker' ||
+    e.kind === 'marine' ||
+    e.kind === 'tank' ||
+    e.kind === 'tank-light' ||
+    e.kind === 'medic' ||
+    e.kind === 'enemyDummy'
   );
 }
 
-function isSelectableUnit(e: Entity): boolean {
-  return isUnit(e);
+function isBuilding(e: Entity): e is Entity & { kind: BuildingKind } {
+  return (
+    e.kind === 'commandCenter' ||
+    e.kind === 'barracks' ||
+    e.kind === 'turret' ||
+    e.kind === 'refinery' ||
+    e.kind === 'factory'
+  );
 }

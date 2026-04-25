@@ -1,9 +1,10 @@
-import type { Entity, EntityId } from '../../types';
+import { CELL, type Entity, type EntityId } from '../../types';
 import {
   DEPOSIT_SECONDS,
   MINING_SECONDS,
+  WORKER_AUTO_REPATH_RADIUS,
   WORKER_CARRY_CAP,
-} from '../entities';
+} from '../balance';
 import { requestPathAdjacent } from './movement';
 import type { World } from '../world';
 
@@ -43,14 +44,7 @@ export function gatherSystem(world: World, dt: number): void {
             ? world.entities.get(e.gatherNodeId)
             : null;
           if (!node || (node.remaining ?? 0) <= 0) {
-            const newNode = findNearestMineralNode(world, e);
-            if (!newNode) {
-              e.command = null;
-              e.gatherSubState = undefined;
-              break;
-            }
-            e.gatherNodeId = newNode.id;
-            walkToNode(world, e);
+            autoRepathOrIdle(world, e);
             break;
           }
           e.gatherSubState = 'mining';
@@ -64,12 +58,15 @@ export function gatherSystem(world: World, dt: number): void {
           const node = e.gatherNodeId
             ? world.entities.get(e.gatherNodeId)
             : null;
-          if (node && (node.remaining ?? 0) > 0) {
-            const taken = Math.min(WORKER_CARRY_CAP, node.remaining ?? 0);
-            node.remaining = (node.remaining ?? 0) - taken;
-            e.carrying = taken;
-            if ((node.remaining ?? 0) <= 0) node.dead = true;
+          // Node depleted mid-mining → auto-repath instead of wasting a CC trip with carrying=0.
+          if (!node || (node.remaining ?? 0) <= 0) {
+            autoRepathOrIdle(world, e);
+            break;
           }
+          const taken = Math.min(WORKER_CARRY_CAP, node.remaining ?? 0);
+          node.remaining = (node.remaining ?? 0) - taken;
+          e.carrying = taken;
+          if ((node.remaining ?? 0) <= 0) node.dead = true;
           walkToHome(world, e);
         }
         break;
@@ -100,18 +97,12 @@ export function gatherSystem(world: World, dt: number): void {
         if (e.gatherTimer <= 0) {
           world.resources[e.team] += e.carrying ?? 0;
           e.carrying = 0;
-          let node = e.gatherNodeId
+          const node = e.gatherNodeId
             ? world.entities.get(e.gatherNodeId)
             : null;
           if (!node || (node.remaining ?? 0) <= 0) {
-            const nn = findNearestMineralNode(world, e);
-            if (!nn) {
-              e.command = null;
-              e.gatherSubState = undefined;
-              break;
-            }
-            e.gatherNodeId = nn.id;
-            node = nn;
+            autoRepathOrIdle(world, e);
+            break;
           }
           walkToNode(world, e);
         }
@@ -166,6 +157,40 @@ function findNearestCC(world: World, w: Entity): EntityId | null {
   return bestId;
 }
 
+function autoRepathOrIdle(world: World, w: Entity): void {
+  const next = findNearestMineralInRadius(world, w);
+  if (!next) {
+    w.command = null;
+    w.gatherSubState = undefined;
+    w.gatherNodeId = null;
+    w.gatherTimer = 0;
+    return;
+  }
+  w.gatherNodeId = next.id;
+  walkToNode(world, w);
+}
+
+// Boundary is inclusive: a node exactly at radius * CELL pixels still counts.
+function findNearestMineralInRadius(world: World, w: Entity): Entity | null {
+  const maxD2 = (WORKER_AUTO_REPATH_RADIUS * CELL) * (WORKER_AUTO_REPATH_RADIUS * CELL);
+  let best: Entity | null = null;
+  let bestD2 = Infinity;
+  for (const e of world.entities.values()) {
+    if (e.kind !== 'mineralNode') continue;
+    if ((e.remaining ?? 0) <= 0) continue;
+    const dx = e.pos.x - w.pos.x;
+    const dy = e.pos.y - w.pos.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > maxD2) continue;
+    if (d2 < bestD2) {
+      best = e;
+      bestD2 = d2;
+    }
+  }
+  return best;
+}
+
+// Unbounded fallback for the initial-setup branch (user clicked an already-dead node).
 function findNearestMineralNode(world: World, w: Entity): Entity | null {
   let best: Entity | null = null;
   let bestD2 = Infinity;

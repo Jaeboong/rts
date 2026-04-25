@@ -17,6 +17,10 @@ export function movementSystem(world: World, dt: number): void {
       const dx = wp.x - e.pos.x;
       const dy = wp.y - e.pos.y;
       const dist = Math.hypot(dx, dy);
+      // Facing tracks the velocity vector; atan2(dy,dx) → east=0, south=+π/2, north=-π/2.
+      if (e.facing !== undefined && dist > 0.001) {
+        e.facing = Math.atan2(dy, dx);
+      }
       if (dist <= remaining + 0.001) {
         e.pos.x = wp.x;
         e.pos.y = wp.y;
@@ -120,6 +124,18 @@ export function shouldRepath(id: number): boolean {
   return true;
 }
 
+// Test hook: clear shared repath throttle state between scenarios.
+export function resetRepathTimers(): void {
+  repathTimer.clear();
+}
+
 function isUnit(e: Entity): boolean {
-  return e.kind === 'worker' || e.kind === 'marine' || e.kind === 'enemyDummy';
+  return (
+    e.kind === 'worker' ||
+    e.kind === 'marine' ||
+    e.kind === 'tank' ||
+    e.kind === 'tank-light' ||
+    e.kind === 'medic' ||
+    e.kind === 'enemyDummy'
+  );
 }

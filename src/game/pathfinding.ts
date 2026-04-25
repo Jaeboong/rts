@@ -1,5 +1,5 @@
 import { CELL, GRID_H, GRID_W, type Vec2 } from '../types';
-import { cellIndex, inBounds, isCellBlocked, type World } from './world';
+import { cellIndex, inBounds, isCellBlocked, isTileBlocked, type World } from './world';
 
 export interface PathReq {
   fromCell: { x: number; y: number };
@@ -71,12 +71,14 @@ export function findPath(
       const ny = cy + dy;
       if (!inBounds(nx, ny)) continue;
       const nIdx = cellIndex(nx, ny);
-      const blocked = isCellBlocked(world, nx, ny);
-      if (blocked) {
-        const occ = world.occupancy[nIdx];
-        // Allow stepping into ignoreId's cell, or the goal cell even if blocked.
-        if (occ !== ignoreId && nIdx !== goalIdx) continue;
-      }
+      // Tile-level blockers (water, walls/hills) are absolute — no goal-cell
+      // exception. Otherwise units could be commanded into water by clicking
+      // there since the goal cell would bypass the block check.
+      if (isTileBlocked(world, nx, ny)) continue;
+      const occ = world.occupancy[nIdx];
+      // Occupancy blockers (buildings, minerals) get the goal/ignore exception
+      // so attacks can target a building's cell directly.
+      if (occ !== -1 && occ !== ignoreId && nIdx !== goalIdx) continue;
       // Diagonal: don't cut corners.
       if (dx !== 0 && dy !== 0) {
         if (

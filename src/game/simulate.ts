@@ -1,10 +1,13 @@
 import type { Entity } from '../types';
 import { TICK_DT, type Game } from './loop';
+import { runCollisionSystem } from './systems/collision';
 import { combatSystem } from './systems/combat';
 import { constructionSystem } from './systems/construction';
 import { gatherSystem } from './systems/gather';
+import { runHealingSystem } from './systems/healing';
 import { movementSystem, requestPath } from './systems/movement';
 import { productionSystem } from './systems/production';
+import { runRefinerySystem } from './systems/refinery';
 import { removeEntity, type World } from './world';
 
 export function runTick(game: Game): void {
@@ -12,9 +15,14 @@ export function runTick(game: Game): void {
   driveCommands(game.world);
   movementSystem(game.world, dt);
   gatherSystem(game.world, dt);
+  runCollisionSystem(game.world);
   constructionSystem(game.world, dt);
+  // Refinery runs after construction so a just-completed refinery starts producing the same tick.
+  runRefinerySystem(game.world, dt);
   productionSystem(game.world, dt);
   combatSystem(game.world, dt);
+  // Heal AFTER combat so a marine that took damage this tick still gets a same-tick "second wind".
+  runHealingSystem(game.world, dt);
   cleanupDead(game.world);
 }
 
@@ -55,5 +63,12 @@ function cleanupDead(world: World): void {
 }
 
 function isUnit(e: Entity): boolean {
-  return e.kind === 'worker' || e.kind === 'marine' || e.kind === 'enemyDummy';
+  return (
+    e.kind === 'worker' ||
+    e.kind === 'marine' ||
+    e.kind === 'tank' ||
+    e.kind === 'tank-light' ||
+    e.kind === 'medic' ||
+    e.kind === 'enemyDummy'
+  );
 }

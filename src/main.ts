@@ -1,8 +1,11 @@
-import { spawnBuilding, spawnMineralNode, spawnUnit } from './game/entities';
+import { applyMap, westernFrontPreset } from './game/map';
 import { createGame, startGame } from './game/loop';
 import { runFrame } from './game/handler';
 import { runTick } from './game/simulate';
-import { cellToPx, createWorld, type World } from './game/world';
+import { createWorld } from './game/world';
+import { loadSprites } from './render/sprites';
+
+const SEED = 42;
 
 const canvas = document.getElementById('game') as HTMLCanvasElement | null;
 if (!canvas) throw new Error('canvas#game not found');
@@ -21,25 +24,21 @@ window.addEventListener('resize', resize);
 resize();
 
 const world = createWorld();
-buildInitialScene(world);
+const { tiles, spawns } = westernFrontPreset.generate(SEED);
+applyMap(world, tiles, spawns);
 
-const game = createGame(canvas, ctx, world);
-game.onUpdate = (g, dt) => runFrame(g, dt);
-game.onTick = (g) => runTick(g);
-startGame(game);
-
-function buildInitialScene(w: World): void {
-  spawnBuilding(w, 'commandCenter', 'player', 10, 10);
-
-  spawnUnit(w, 'worker', 'player', cellToPx(15, 12));
-  spawnUnit(w, 'worker', 'player', cellToPx(15, 13));
-  spawnUnit(w, 'marine', 'player', cellToPx(16, 14));
-
-  spawnMineralNode(w, 18, 8);
-  spawnMineralNode(w, 19, 8);
-  spawnMineralNode(w, 18, 9);
-  spawnMineralNode(w, 19, 9);
-
-  spawnUnit(w, 'enemyDummy', 'enemy', cellToPx(50, 50));
-  spawnUnit(w, 'enemyDummy', 'enemy', cellToPx(51, 51));
-}
+// Tile background renders procedurally (no terrain-sprite atlas yet) — skip
+// loadTileSprites until real terrain art ships. Pass null tileAtlas; renderer
+// already paints from world.tiles via TILE_FILL palette.
+loadSprites()
+  .then((atlas) => {
+    const game = createGame(canvas, ctx, world, atlas, null);
+    game.onUpdate = (g, dt) => runFrame(g, dt);
+    game.onTick = (g) => runTick(g);
+    startGame(game);
+  })
+  .catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[rts2] asset load failed:', msg);
+    throw err;
+  });

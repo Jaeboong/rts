@@ -1,12 +1,14 @@
 export interface InputState {
   keys: Set<string>;
   mouse: { x: number; y: number };
+  mouseInside: boolean;
   // For drag selection
   leftDown: boolean;
   leftDownAt: { x: number; y: number } | null;
   // One-shot events consumed by the game each frame
   clicks: ClickEvent[];
   rightClicks: RightClickEvent[];
+  keyDownEdges: Set<string>;
   // Drag box committed on left-up
   dragCommit: DragCommitEvent | null;
 }
@@ -37,15 +39,19 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
   const state: InputState = {
     keys: new Set(),
     mouse: { x: 0, y: 0 },
+    mouseInside: false,
     leftDown: false,
     leftDownAt: null,
     clicks: [],
     rightClicks: [],
+    keyDownEdges: new Set(),
     dragCommit: null,
   };
 
   window.addEventListener('keydown', (e) => {
-    state.keys.add(e.key.toLowerCase());
+    const key = e.key.toLowerCase();
+    if (!state.keys.has(key)) state.keyDownEdges.add(key);
+    state.keys.add(key);
   });
   window.addEventListener('keyup', (e) => {
     state.keys.delete(e.key.toLowerCase());
@@ -58,6 +64,11 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
     const rect = canvas.getBoundingClientRect();
     state.mouse.x = e.clientX - rect.left;
     state.mouse.y = e.clientY - rect.top;
+    state.mouseInside = true;
+  });
+
+  canvas.addEventListener('mouseenter', () => {
+    state.mouseInside = true;
   });
 
   canvas.addEventListener('mousedown', (e) => {
@@ -66,6 +77,7 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
     const y = e.clientY - rect.top;
     state.mouse.x = x;
     state.mouse.y = y;
+    state.mouseInside = true;
     if (e.button === 0) {
       state.leftDown = true;
       state.leftDownAt = { x, y };
@@ -101,6 +113,7 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
   canvas.addEventListener('mouseleave', () => {
     state.leftDown = false;
     state.leftDownAt = null;
+    state.mouseInside = false;
   });
 
   return state;
@@ -109,6 +122,7 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
 export function consumeFrame(input: InputState): void {
   input.clicks.length = 0;
   input.rightClicks.length = 0;
+  input.keyDownEdges.clear();
   input.dragCommit = null;
 }
 

@@ -8,29 +8,48 @@ import {
   type Team,
   type Vec2,
 } from '../types';
+import { TILE_DEFS } from './map/tiles';
+import type { TileKind } from './map/types';
 
 export interface World {
   tickCount: number;
   entities: Map<EntityId, Entity>;
   nextId: number;
   resources: Record<Team, number>;
+  gas: number;
   occupancy: Int32Array;
+  // Per-cell tile kind (length = GRID_W * GRID_H). Default 'grass-1' on creation;
+  // map presets overwrite via applyMap() at scene load. Read by pathfinding.
+  tiles: TileKind[];
   selection: Set<EntityId>;
   placement: { team: Team; buildingKind: BuildingKind } | null;
+  attackMode: boolean;
 }
 
 export function createWorld(): World {
   const occ = new Int32Array(GRID_W * GRID_H);
   occ.fill(-1);
+  const tiles: TileKind[] = new Array(GRID_W * GRID_H);
+  // Walkable default — preserves existing test semantics where empty grids
+  // route freely; presets overwrite at load time.
+  for (let i = 0; i < tiles.length; i++) tiles[i] = 'grass-1';
   return {
     tickCount: 0,
     entities: new Map(),
     nextId: 1,
-    resources: { player: 100, enemy: 0, neutral: 0 },
+    resources: { player: 500, enemy: 0, neutral: 0 },
+    gas: 200,
     occupancy: occ,
+    tiles,
     selection: new Set(),
     placement: null,
+    attackMode: false,
   };
+}
+
+// Pure read of tile walkability — water tiles report blocked, all others walkable.
+export function isTileBlocked(world: World, cx: number, cy: number): boolean {
+  return !TILE_DEFS[world.tiles[cellIndex(cx, cy)]].walkable;
 }
 
 export function cellIndex(cx: number, cy: number): number {
@@ -43,7 +62,8 @@ export function inBounds(cx: number, cy: number): boolean {
 
 export function isCellBlocked(world: World, cx: number, cy: number): boolean {
   if (!inBounds(cx, cy)) return true;
-  return world.occupancy[cellIndex(cx, cy)] !== -1;
+  if (world.occupancy[cellIndex(cx, cy)] !== -1) return true;
+  return isTileBlocked(world, cx, cy);
 }
 
 export function setOccupancy(
