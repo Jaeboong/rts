@@ -31,7 +31,7 @@ export const BUILDING_DEFS: Record<BuildingKind, BuildingDef> = {
   },
   // Refinery footprint matches the 5×5 geyser exactly — TL aligned, cells overlap.
   refinery: { hp: 800, w: 5, h: 5, buildSeconds: 15, cost: 100 },
-  factory: { hp: 1200, w: 10, h: 10, buildSeconds: 25, cost: 400, gasCost: 200 },
+  factory: { hp: 1200, w: 10, h: 9, buildSeconds: 25, cost: 400, gasCost: 200 },
 };
 
 // Units --------------------------------------------------------------------

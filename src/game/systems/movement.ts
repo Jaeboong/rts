@@ -10,6 +10,10 @@ export function movementSystem(world: World, dt: number): void {
     if (!isUnit(e)) continue;
     if (!e.path || e.path.length === 0) continue;
     if (!e.speed) continue;
+    // Tanks are rooted while their fire animation is playing. A fresh user
+    // command resets attackEffectMs (see commands.ts) so move-during-fire works
+    // by overriding the lock rather than skipping it.
+    if ((e.kind === 'tank' || e.kind === 'tank-light') && (e.attackEffectMs ?? 0) > 0) continue;
 
     let remaining = e.speed * dt;
     while (remaining > 0 && e.path.length > 0) {

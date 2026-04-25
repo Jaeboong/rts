@@ -36,6 +36,9 @@ export function issueRightClick(
       e.command = cmd;
       e.path = null;
       e.attackTargetId = null;
+      // User-issued command overrides the tank attack-anim root, so a fresh
+      // move beats the in-progress fire window.
+      e.attackEffectMs = 0;
     } else if (isBuilding(e) && canBuildingProduceUnits(e.kind)) {
       e.rallyPoint = { x: wx, y: wy };
     }
@@ -58,6 +61,7 @@ export function issueAttackModeClick(
     e.command = cmd;
     e.path = null;
     e.attackTargetId = null;
+    e.attackEffectMs = 0;
   }
 }
 
