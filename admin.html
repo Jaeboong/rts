@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RTS MVP — Admin</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: #1a1a1a; color: #ddd; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      body { padding: 16px; }
+      h1 { font-size: 18px; margin: 0 0 8px; }
+      h2 { font-size: 14px; margin: 16px 0 4px; color: #6cf; }
+      table { border-collapse: collapse; margin-bottom: 8px; }
+      th, td { border: 1px solid #333; padding: 4px 6px; font-size: 12px; }
+      th { background: #222; text-align: left; font-weight: normal; color: #999; }
+      td.kind { color: #ffa; }
+      input[type="number"], select { width: 80px; background: #111; color: #ddd; border: 1px solid #444; padding: 2px 4px; font-family: inherit; font-size: 12px; }
+      input[type="number"]:disabled, select:disabled { background: #1a1a1a; color: #555; }
+      .btnrow { margin: 12px 0; display: flex; gap: 8px; }
+      button { background: #245; color: #cef; border: 1px solid #468; padding: 6px 14px; font-family: inherit; font-size: 13px; cursor: pointer; }
+      button:hover { background: #357; }
+      button.danger { background: #522; border-color: #844; color: #fcc; }
+      button.danger:hover { background: #733; }
+      .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; }
+      .modal-bg.open { display: flex; }
+      .modal { background: #222; border: 1px solid #555; padding: 16px; max-width: 80vw; max-height: 80vh; display: flex; flex-direction: column; gap: 8px; }
+      textarea { width: 60vw; min-width: 400px; height: 40vh; min-height: 200px; background: #111; color: #ddd; border: 1px solid #444; font-family: inherit; font-size: 12px; padding: 8px; resize: both; }
+      .hint { color: #888; font-size: 11px; margin-top: 4px; }
+      a { color: #6cf; }
+    </style>
+  </head>
+  <body>
+    <div id="admin-root"></div>
+    <script type="module" src="/src/admin/main.ts"></script>
+  </body>
+</html>

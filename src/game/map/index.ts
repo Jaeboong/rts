@@ -12,10 +12,13 @@ import {
 import type { World } from '../world';
 import type { SpawnSpec, TileKind } from './types';
 
-export { TILE_DEFS, ALL_TILE_KINDS, loadTileSprites } from './tiles';
-export type { TileAtlas, TileImage } from './tiles';
+export { TILE_DEFS, ALL_TILE_KINDS, loadTileSprites, loadAutotileSheet } from './tiles';
+export type { TileAtlas, AutotileAtlas, TileImage } from './tiles';
 export { drawTileBackground, getVisibleTileRange } from './tile-render';
 export type { VisibleTileRange } from './tile-render';
+export { TILE_SLOTS, TILE_SLOTS_ALL, TILE_SLOTS_BY_ID } from './tile-sheet';
+export type { TileSlot, TerrainBaseClass } from './tile-sheet';
+export { pickAutotile, computeEdgeMask, tileKindBaseClass } from './autotile';
 export type {
   TileKind,
   TileDef,

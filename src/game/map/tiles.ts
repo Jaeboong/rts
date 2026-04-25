@@ -1,3 +1,4 @@
+import { TILE_SLOTS_ALL } from './tile-sheet';
 import type { TileDef, TileKind } from './types';
 
 // Per-kind tile metadata. walkable=false ONLY for water — walls/props are
@@ -41,6 +42,13 @@ export interface TileAtlas {
   base: Record<TileKind, TileImage>;
 }
 
+// Autotile sheet atlas — keyed by slot id ('cXrY'). Distinct shape from
+// TileAtlas because the autotile sheet is indexed by spatial slot, not by
+// TileKind. Renderer prefers this when present.
+export interface AutotileAtlas {
+  slots: Record<string, TileImage>;
+}
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -61,4 +69,17 @@ export async function loadTileSprites(baseUrl = ''): Promise<TileAtlas> {
   );
   const base = Object.fromEntries(entries) as Record<TileKind, TileImage>;
   return { base };
+}
+
+// Loads all 32 autotile slot PNGs from public/tiles/auto/. Used by the
+// sprite-based terrain renderer; falls back to TILE_FILL palette when null.
+export async function loadAutotileSheet(baseUrl = ''): Promise<AutotileAtlas> {
+  const entries = await Promise.all(
+    TILE_SLOTS_ALL.map(async (s) => {
+      const img = await loadImage(baseUrl + s.spritePath);
+      return [s.id, img] as const;
+    }),
+  );
+  const slots = Object.fromEntries(entries) as Record<string, TileImage>;
+  return { slots };
 }

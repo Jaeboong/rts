@@ -1,9 +1,13 @@
-import { applyMap, westernFrontPreset } from './game/map';
+import { applyOverridesAtStartup } from './game/balance-overrides';
+import { applyMap, loadAutotileSheet, westernFrontPreset } from './game/map';
 import { createGame, startGame } from './game/loop';
 import { runFrame } from './game/handler';
 import { runTick } from './game/simulate';
 import { createWorld } from './game/world';
 import { loadSprites } from './render/sprites';
+
+// Mutates UNIT_DEFS / BUILDING_DEFS / UNIT_PRODUCTION before any spawn — must run before world build.
+applyOverridesAtStartup();
 
 const SEED = 42;
 
@@ -27,12 +31,12 @@ const world = createWorld();
 const { tiles, spawns } = westernFrontPreset.generate(SEED);
 applyMap(world, tiles, spawns);
 
-// Tile background renders procedurally (no terrain-sprite atlas yet) — skip
-// loadTileSprites until real terrain art ships. Pass null tileAtlas; renderer
-// already paints from world.tiles via TILE_FILL palette.
-loadSprites()
-  .then((atlas) => {
-    const game = createGame(canvas, ctx, world, atlas, null);
+// Phase 36 — load both unit/building sprites AND the 32 autotile slot PNGs.
+// When loadAutotileSheet resolves, the renderer's autotile path activates; if
+// either load fails the catch block aborts (no partial-asset start).
+Promise.all([loadSprites(), loadAutotileSheet()])
+  .then(([atlas, tileAtlas]) => {
+    const game = createGame(canvas, ctx, world, atlas, tileAtlas);
     game.onUpdate = (g, dt) => runFrame(g, dt);
     game.onTick = (g) => runTick(g);
     startGame(game);

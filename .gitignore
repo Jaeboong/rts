@@ -11,4 +11,3 @@ dist/
 # Sprite/tile slicing backups
 public/sprites/.backup-rgb/
 public/tiles/.backup-rgb/
-public/tiles/auto/

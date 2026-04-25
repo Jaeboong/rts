@@ -1,7 +1,8 @@
 import { CELL, GRID_H, GRID_W } from '../../types';
 import type { Camera } from '../camera';
 import { cellIndex, type World } from '../world';
-import type { TileAtlas } from './tiles';
+import { pickAutotile } from './autotile';
+import type { AutotileAtlas } from './tiles';
 import type { TileKind } from './types';
 
 export interface VisibleTileRange {
@@ -68,16 +69,69 @@ const PROP_OVERLAYS: Partial<Record<TileKind, PropOverlay>> = {
 // without a sprite. Drawn after fill so it sits on top of the cell.
 const HILL_RIM = 'rgba(255,240,210,0.18)';
 
-// Draw the visible slab of tiles using flat colors. Atlas parameter is kept for
-// signature compatibility with the future sprite-based path; ignored here.
+// Draw the visible slab of tiles. When `atlas` is non-null we use the autotile
+// sheet (per-cell sprite chosen by neighbour mask via pickAutotile); otherwise
+// we fall back to the procedural flat-color palette.
 export function drawTileBackground(
   ctx: CanvasRenderingContext2D,
   world: World,
   cam: Camera,
-  _atlas: TileAtlas | null = null,
+  atlas: AutotileAtlas | null = null,
 ): void {
   const { minCx, maxCx, minCy, maxCy } = getVisibleTileRange(cam);
-  // Pass 1: base fills
+
+  if (atlas) {
+    drawTileBackgroundSprites(ctx, world, atlas, minCx, maxCx, minCy, maxCy);
+  } else {
+    drawTileBackgroundProcedural(ctx, world, minCx, maxCx, minCy, maxCy);
+  }
+
+  // Prop overlays draw last regardless of base path — the autotile sheet has no
+  // per-prop variants, so the small marker preserves prop visibility.
+  drawPropOverlays(ctx, world, minCx, maxCx, minCy, maxCy);
+}
+
+// Sprite-based pass — autotile sheet path. imageSmoothingEnabled=false is set
+// per-call so the renderer's other layers (which want bilinear) aren't affected.
+function drawTileBackgroundSprites(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  atlas: AutotileAtlas,
+  minCx: number,
+  maxCx: number,
+  minCy: number,
+  maxCy: number,
+): void {
+  const prevSmoothing = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
+  for (let cy = minCy; cy <= maxCy; cy++) {
+    for (let cx = minCx; cx <= maxCx; cx++) {
+      const id = pickAutotile(world.tiles, cx, cy, GRID_W, GRID_H);
+      const img = atlas.slots[id];
+      if (!img) {
+        // Slot missing in atlas — fall back to fill so a load gap is debuggable
+        // rather than invisible.
+        const kind = world.tiles[cellIndex(cx, cy)];
+        ctx.fillStyle = TILE_FILL[kind];
+        ctx.fillRect(cx * CELL, cy * CELL, CELL, CELL);
+        continue;
+      }
+      ctx.drawImage(img, cx * CELL, cy * CELL, CELL, CELL);
+    }
+  }
+  ctx.imageSmoothingEnabled = prevSmoothing;
+}
+
+// Procedural pass — pre-Phase-36 behaviour, retained as fallback for atlas==null
+// and for tests that don't need pixel-faithful terrain.
+function drawTileBackgroundProcedural(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  minCx: number,
+  maxCx: number,
+  minCy: number,
+  maxCy: number,
+): void {
   for (let cy = minCy; cy <= maxCy; cy++) {
     for (let cx = minCx; cx <= maxCx; cx++) {
       const kind = world.tiles[cellIndex(cx, cy)];
@@ -85,7 +139,6 @@ export function drawTileBackground(
       ctx.fillRect(cx * CELL, cy * CELL, CELL, CELL);
     }
   }
-  // Pass 2: hill rims (wall-*) — thin lighter top-left edge for depth
   ctx.strokeStyle = HILL_RIM;
   ctx.lineWidth = 1;
   for (let cy = minCy; cy <= maxCy; cy++) {
@@ -101,7 +154,16 @@ export function drawTileBackground(
       ctx.stroke();
     }
   }
-  // Pass 3: prop overlays
+}
+
+function drawPropOverlays(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  minCx: number,
+  maxCx: number,
+  minCy: number,
+  maxCy: number,
+): void {
   for (let cy = minCy; cy <= maxCy; cy++) {
     for (let cx = minCx; cx <= maxCx; cx++) {
       const kind = world.tiles[cellIndex(cx, cy)];

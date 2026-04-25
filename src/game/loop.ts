@@ -8,7 +8,7 @@ import {
   createInput,
   type InputState,
 } from './input';
-import type { TileAtlas } from './map/tiles';
+import type { AutotileAtlas } from './map/tiles';
 import type { World } from './world';
 
 export const EDGE_PAN_THRESHOLD_PX = 20;
@@ -24,7 +24,7 @@ export interface Game {
   hud: HUDState;
   speedFactor: SpeedFactor;
   atlas: SpriteAtlas | null;
-  tileAtlas: TileAtlas | null;
+  tileAtlas: AutotileAtlas | null;
   onUpdate?: (game: Game, dt: number) => void;
   onTick?: (game: Game) => void;
 }
@@ -39,7 +39,7 @@ export function createGame(
   ctx: CanvasRenderingContext2D,
   world: World,
   atlas: SpriteAtlas | null = null,
-  tileAtlas: TileAtlas | null = null,
+  tileAtlas: AutotileAtlas | null = null,
 ): Game {
   return {
     ctx,

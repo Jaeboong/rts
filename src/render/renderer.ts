@@ -10,7 +10,7 @@ import {
 import { BUILDING_DEFS } from '../game/balance';
 import { canPlace, canPlaceRefinery, unclaimedGeyserAt } from '../game/commands';
 import { drawTileBackground } from '../game/map/tile-render';
-import type { TileAtlas } from '../game/map/tiles';
+import type { AutotileAtlas } from '../game/map/tiles';
 import type { World } from '../game/world';
 import type { Camera } from '../game/camera';
 import {
@@ -125,7 +125,7 @@ export function renderWorld(
   drag: DragBox | null,
   mouseWorld: Vec2 | null,
   atlas: SpriteAtlas | null = null,
-  tileAtlas: TileAtlas | null = null,
+  tileAtlas: AutotileAtlas | null = null,
 ): void {
   ctx.save();
   ctx.translate(-cam.x, -cam.y);
