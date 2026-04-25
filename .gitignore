@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.vite/
+*.log
+.DS_Store
+
+# Claude Code
+.claude/settings.local.json
+.claude/worktrees/
+
+# Sprite/tile slicing backups
+public/sprites/.backup-rgb/
+public/tiles/.backup-rgb/
