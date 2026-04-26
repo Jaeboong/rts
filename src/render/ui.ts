@@ -1,7 +1,11 @@
 import { BUILDING_DEFS, UNIT_PRODUCTION } from '../game/balance';
 import type { SpeedFactor } from '../game/loop';
 import type { World } from '../game/world';
-import type { BuildingKind } from '../types';
+import type { BuildingKind, Entity } from '../types';
+import {
+  computeProductionQueuePanel,
+  drawProductionQueuePanel,
+} from './production-queue-panel';
 import {
   ACTION_HOTKEYS,
   actionDisplayName,
@@ -153,6 +157,9 @@ export function drawHUD(
   drawSelectionInfo(ctx, world, viewH);
   drawButtons(ctx, hud.buttons);
 
+  const queuePanel = computeProductionQueuePanel(world, viewW, viewH, PANEL_H);
+  if (queuePanel) drawProductionQueuePanel(ctx, queuePanel);
+
   // placement hint
   if (world.placement) {
     ctx.font = '14px ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -220,6 +227,12 @@ function drawSelectionInfo(
     }
     if (e.kind === 'mineralNode') {
       ctx.fillText(`remaining: ${e.remaining ?? 0}`, 12, baseY + 18);
+    }
+    if (e.kind === 'supplyDepot') {
+      const remaining = supplyDepotRemaining(world, e);
+      if (remaining !== null) {
+        ctx.fillText(`remaining: ${remaining}`, 12, baseY + 72);
+      }
     }
   } else {
     const counts = new Map<string, number>();
@@ -392,6 +405,21 @@ function computeButtons(
     }
   }
   return buttons;
+}
+
+/**
+ * Returns the underlying mineralNode's `remaining` ore for a supplyDepot, or
+ * null when the depot has no link or the node is gone. Pure helper so the panel
+ * "remaining: N" line is unit-testable without a Canvas context.
+ */
+export function supplyDepotRemaining(world: World, depot: Entity): number | null {
+  if (depot.kind !== 'supplyDepot') return null;
+  if (depot.mineralNodeId === null || depot.mineralNodeId === undefined) {
+    return null;
+  }
+  const node = world.entities.get(depot.mineralNodeId);
+  if (!node) return null;
+  return node.remaining ?? 0;
 }
 
 export function findButtonAt(

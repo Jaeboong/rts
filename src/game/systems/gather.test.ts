@@ -147,6 +147,64 @@ describe('gather depot indirection', () => {
     expect(worker.gatherSubState).toBe('toNode');
   });
 
+  it('right-click on supplyDepot under construction → gather rejected, command cleared', () => {
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const node = spawnMineralNode(w, 35, 40, 1500);
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 35, 40, false);
+    node.depotId = depot.id;
+    depot.mineralNodeId = node.id;
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: depot.id };
+
+    gatherSystem(w, 1 / 20);
+
+    // No other depot in the world, so init falls through and clears command.
+    expect(worker.command).toBeNull();
+    expect(worker.gatherSubState).toBeUndefined();
+  });
+
+  it('right-click on raw mineralNode whose depot is under construction → gather rejected', () => {
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const node = spawnMineralNode(w, 35, 40, 1500);
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 35, 40, false);
+    node.depotId = depot.id;
+    depot.mineralNodeId = node.id;
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: node.id };
+
+    gatherSystem(w, 1 / 20);
+
+    expect(worker.command).toBeNull();
+    expect(worker.gatherSubState).toBeUndefined();
+  });
+
+  it('completing the depot lets a fresh gather command resolve normally', () => {
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const node = spawnMineralNode(w, 35, 40, 1500);
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 35, 40, false);
+    node.depotId = depot.id;
+    depot.mineralNodeId = node.id;
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+
+    // First attempt while under construction → rejected.
+    worker.command = { type: 'gather', nodeId: depot.id };
+    gatherSystem(w, 1 / 20);
+    expect(worker.command).toBeNull();
+
+    // Complete the depot.
+    depot.underConstruction = false;
+    depot.hp = depot.hpMax;
+
+    // Second attempt → resolves to underlying node.
+    worker.command = { type: 'gather', nodeId: depot.id };
+    gatherSystem(w, 1 / 20);
+    expect(worker.gatherNodeId).toBe(node.id);
+    expect(worker.gatherSubState).toBe('toNode');
+  });
+
   it('mining a depleted depot-claimed node does NOT mark it dead (depot would lose footprint)', () => {
     const w = createWorld();
     spawnBuilding(w, 'commandCenter', 'player', 10, 10);
@@ -264,6 +322,31 @@ describe('mineral auto-repath on depletion', () => {
     // No depot-claimed node within radius → idles.
     expect(worker.gatherSubState).toBeUndefined();
     expect(worker.gatherNodeId).not.toBe(raw.id);
+  });
+
+  it('does not pick a node whose depot is still underConstruction', () => {
+    // Auto-repath fallback path: under-construction depot must not satisfy the scan.
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const { node: primary } = spawnNodeWithDepot(w, 35, 40, 100);
+    // Alt patch within radius but its depot is not yet built.
+    const altNode = spawnMineralNode(w, 41, 40, 1500);
+    const altDepot = spawnBuilding(w, 'supplyDepot', 'player', 41, 40, false);
+    altNode.depotId = altDepot.id;
+    altDepot.mineralNodeId = altNode.id;
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: primary.id };
+    worker.gatherSubState = 'mining';
+    worker.gatherTimer = 0.01;
+    worker.gatherNodeId = primary.id;
+    primary.remaining = 0;
+
+    gatherSystem(w, 1 / 20);
+
+    // Under-construction depot is not gatherable → no alt found → idles.
+    expect(worker.gatherSubState).toBeUndefined();
+    expect(worker.gatherNodeId).not.toBe(altNode.id);
+    expect(worker.command).toBeNull();
   });
 
   it('treats radius boundary as inclusive (mineral at exactly N*CELL is selected)', () => {

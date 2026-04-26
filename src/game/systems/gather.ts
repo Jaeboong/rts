@@ -27,17 +27,25 @@ export function gatherSystem(world: World, dt: number): void {
       // Right-click on a supplyDepot → use its underlying mineralNode.
       // Right-click on a raw mineralNode without a depot → no-op (gather rejected).
       // Right-click on a mineralNode with depot → just use the node directly.
+      // Depot must be fully constructed — under-construction depot blocks gather.
       const target = world.entities.get(e.command.nodeId);
       let resolvedNodeId: number | null = null;
       if (target) {
         if (target.kind === 'supplyDepot') {
-          if (target.mineralNodeId !== null && target.mineralNodeId !== undefined) {
+          if (
+            target.mineralNodeId !== null &&
+            target.mineralNodeId !== undefined &&
+            !target.underConstruction
+          ) {
             resolvedNodeId = target.mineralNodeId;
           }
         } else if (target.kind === 'mineralNode') {
-          // Raw patch is gatherable only when claimed by a depot.
+          // Raw patch is gatherable only when claimed by a fully-built depot.
           if (target.depotId !== null && target.depotId !== undefined) {
-            resolvedNodeId = target.id;
+            const depot = world.entities.get(target.depotId);
+            if (depot && !depot.underConstruction) {
+              resolvedNodeId = target.id;
+            }
           }
         }
       }
@@ -204,15 +212,14 @@ function autoRepathOrIdle(world: World, w: Entity): void {
 }
 
 // Boundary is inclusive: a node exactly at radius * CELL pixels still counts.
-// Only depot-claimed nodes are considered: raw patches without a depot can't be gathered.
+// Only nodes whose depot is fully built are considered: raw patches without a
+// depot, or nodes whose depot is still under construction, can't be gathered.
 function findNearestMineralInRadius(world: World, w: Entity): Entity | null {
   const maxD2 = (WORKER_AUTO_REPATH_RADIUS * CELL) * (WORKER_AUTO_REPATH_RADIUS * CELL);
   let best: Entity | null = null;
   let bestD2 = Infinity;
   for (const e of world.entities.values()) {
-    if (e.kind !== 'mineralNode') continue;
-    if ((e.remaining ?? 0) <= 0) continue;
-    if (e.depotId === null || e.depotId === undefined) continue;
+    if (!isGatherableNode(world, e)) continue;
     const dx = e.pos.x - w.pos.x;
     const dy = e.pos.y - w.pos.y;
     const d2 = dx * dx + dy * dy;
@@ -226,14 +233,13 @@ function findNearestMineralInRadius(world: World, w: Entity): Entity | null {
 }
 
 // Unbounded fallback for the initial-setup branch (user clicked an already-dead node).
-// Only depot-claimed nodes count — raw patches require a depot built on top to gather.
+// Only nodes whose depot is fully built count — raw patches and under-construction
+// depots are excluded.
 function findNearestMineralNode(world: World, w: Entity): Entity | null {
   let best: Entity | null = null;
   let bestD2 = Infinity;
   for (const e of world.entities.values()) {
-    if (e.kind !== 'mineralNode') continue;
-    if ((e.remaining ?? 0) <= 0) continue;
-    if (e.depotId === null || e.depotId === undefined) continue;
+    if (!isGatherableNode(world, e)) continue;
     const dx = e.pos.x - w.pos.x;
     const dy = e.pos.y - w.pos.y;
     const d2 = dx * dx + dy * dy;
@@ -243,4 +249,13 @@ function findNearestMineralNode(world: World, w: Entity): Entity | null {
     }
   }
   return best;
+}
+
+function isGatherableNode(world: World, e: Entity): boolean {
+  if (e.kind !== 'mineralNode') return false;
+  if ((e.remaining ?? 0) <= 0) return false;
+  if (e.depotId === null || e.depotId === undefined) return false;
+  const depot = world.entities.get(e.depotId);
+  if (!depot || depot.underConstruction) return false;
+  return true;
 }

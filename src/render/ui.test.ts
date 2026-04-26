@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { findButtonAt, type HUDState, type UIButton } from './ui';
+import { spawnBuilding, spawnMineralNode } from '../game/entities';
+import { createWorld } from '../game/world';
+import {
+  findButtonAt,
+  supplyDepotRemaining,
+  type HUDState,
+  type UIButton,
+} from './ui';
 import {
   ACTION_HOTKEYS,
   actionDisplayName,
@@ -177,5 +184,45 @@ describe('getButtonTooltip', () => {
     const t = getButtonTooltip(b);
     expect(t.lines.length).toBe(1);
     expect(t.lines[0]).toBe('Command Center');
+  });
+});
+
+describe('supplyDepotRemaining', () => {
+  it('returns null for non-supplyDepot entities', () => {
+    const w = createWorld();
+    const cc = spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    expect(supplyDepotRemaining(w, cc)).toBeNull();
+  });
+
+  it('returns null for a supplyDepot with no mineralNode link', () => {
+    const w = createWorld();
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30);
+    expect(depot.mineralNodeId).toBeNull();
+    expect(supplyDepotRemaining(w, depot)).toBeNull();
+  });
+
+  it('returns the underlying mineralNode remaining ore for a linked depot', () => {
+    const w = createWorld();
+    const node = spawnMineralNode(w, 30, 30, 12345);
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30);
+    node.depotId = depot.id;
+    depot.mineralNodeId = node.id;
+    expect(supplyDepotRemaining(w, depot)).toBe(12345);
+  });
+
+  it('returns 0 when the linked node has no remaining (depleted)', () => {
+    const w = createWorld();
+    const node = spawnMineralNode(w, 30, 30, 0);
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30);
+    node.depotId = depot.id;
+    depot.mineralNodeId = node.id;
+    expect(supplyDepotRemaining(w, depot)).toBe(0);
+  });
+
+  it('returns null when the linked node id no longer resolves', () => {
+    const w = createWorld();
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30);
+    depot.mineralNodeId = 99999; // dangling
+    expect(supplyDepotRemaining(w, depot)).toBeNull();
   });
 });

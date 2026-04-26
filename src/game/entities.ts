@@ -105,7 +105,7 @@ export function spawnMineralNode(
   world: World,
   cellX: number,
   cellY: number,
-  remaining = 1500,
+  remaining = 15000,
 ): Entity {
   return addEntity(world, {
     kind: 'mineralNode',
