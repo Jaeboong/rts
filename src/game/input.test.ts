@@ -18,6 +18,8 @@ function makeInput(): InputState {
     rightClicks: [],
     keyDownEdges: new Set(),
     dragCommit: null,
+    lastClickTime: 0,
+    lastClickedEntityId: null,
   };
 }
 
@@ -47,7 +49,7 @@ describe('input keyDownEdges', () => {
   it('consumeFrame clears edges', () => {
     const input = makeInput();
     input.keyDownEdges.add('a');
-    input.clicks.push({ x: 1, y: 2, shift: false });
+    input.clicks.push({ x: 1, y: 2, shift: false, ctrl: false, time: 0 });
     consumeFrame(input);
     expect(input.keyDownEdges.size).toBe(0);
     expect(input.clicks.length).toBe(0);
@@ -111,7 +113,7 @@ describe('attack-mode flow via runFrame', () => {
     w.selection.add(m.id);
     w.attackMode = true;
     const input = makeInput();
-    input.clicks.push({ x: 400, y: 400, shift: false });
+    input.clicks.push({ x: 400, y: 400, shift: false, ctrl: false, time: 0 });
     runFrame(makeGame(w, input), 16);
     expect(w.attackMode).toBe(false);
     expect(m.command).not.toBeNull();
@@ -129,7 +131,7 @@ describe('attack-mode flow via runFrame', () => {
     w.selection.add(m.id);
     w.attackMode = true;
     const input = makeInput();
-    input.clicks.push({ x: enemy.pos.x, y: enemy.pos.y, shift: false });
+    input.clicks.push({ x: enemy.pos.x, y: enemy.pos.y, shift: false, ctrl: false, time: 0 });
     runFrame(makeGame(w, input), 16);
     expect(w.attackMode).toBe(false);
     expect(m.command).not.toBeNull();
@@ -147,7 +149,7 @@ describe('attack-mode flow via runFrame', () => {
     w.selection.add(m.id);
     w.attackMode = true;
     const input = makeInput();
-    input.clicks.push({ x: ally.pos.x, y: ally.pos.y, shift: false });
+    input.clicks.push({ x: ally.pos.x, y: ally.pos.y, shift: false, ctrl: false, time: 0 });
     runFrame(makeGame(w, input), 16);
     expect(w.attackMode).toBe(false);
     expect(m.command).not.toBeNull();
@@ -180,12 +182,12 @@ describe('build placement hotkeys via runFrame', () => {
     expect(w.placement!.team).toBe('player');
   });
 
-  it("Worker selected + 'c' edge → placement mode = commandCenter", () => {
+  it("Worker selected + 'v' edge → placement mode = commandCenter", () => {
     const w = createWorld();
     const worker = spawnUnit(w, 'worker', 'player', cellToPx(10, 10));
     w.selection.add(worker.id);
     const input = makeInput();
-    input.keyDownEdges.add('c');
+    input.keyDownEdges.add('v');
     runFrame(makeGame(w, input), 16);
     expect(w.placement).not.toBeNull();
     expect(w.placement!.buildingKind).toBe('commandCenter');
@@ -314,58 +316,58 @@ describe('production hotkeys via runFrame', () => {
     expect(w.attackMode).toBe(true);
   });
 
-  it("Barracks selected + 'u' edge → Medic queued (50 min + 25 gas deducted)", () => {
+  it("Barracks selected + 'c' edge → Medic queued (50 min + 25 gas deducted)", () => {
     const w = createWorld();
     const bx = spawnBuilding(w, 'barracks', 'player', 10, 10);
     w.selection.add(bx.id);
     w.resources.player = 200;
-    w.gas = 100;
+    w.gas.player = 100;
     const input = makeInput();
-    input.keyDownEdges.add('u');
+    input.keyDownEdges.add('c');
     runFrame(makeGame(w, input), 16);
     expect(bx.productionQueue!.length).toBe(1);
     expect(bx.productionQueue![0].produces).toBe('medic');
     expect(w.resources.player).toBe(200 - 50);
-    expect(w.gas).toBe(100 - 25);
+    expect(w.gas.player).toBe(100 - 25);
   });
 
-  it("Marine selected (wrong selection) + 'u' edge → no-op", () => {
+  it("Marine selected (wrong selection) + 'c' edge → no-op", () => {
     const w = createWorld();
     const m = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
     w.selection.add(m.id);
     const before = w.resources.player;
-    const beforeGas = w.gas;
+    const beforeGas = w.gas.player;
     const input = makeInput();
-    input.keyDownEdges.add('u');
+    input.keyDownEdges.add('c');
     runFrame(makeGame(w, input), 16);
     expect(w.resources.player).toBe(before);
-    expect(w.gas).toBe(beforeGas);
+    expect(w.gas.player).toBe(beforeGas);
   });
 
-  it("CommandCenter selected + 'u' edge → no-op (wrong producer)", () => {
+  it("CommandCenter selected + 'c' edge → no-op (wrong producer)", () => {
     const w = createWorld();
     const cc = spawnBuilding(w, 'commandCenter', 'player', 10, 10);
     w.selection.add(cc.id);
     const before = w.resources.player;
     const input = makeInput();
-    input.keyDownEdges.add('u');
+    input.keyDownEdges.add('c');
     runFrame(makeGame(w, input), 16);
     expect(cc.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(before);
   });
 
-  it("Barracks selected + 'u' but insufficient gas → no medic queued", () => {
+  it("Barracks selected + 'c' but insufficient gas → no medic queued", () => {
     const w = createWorld();
     const bx = spawnBuilding(w, 'barracks', 'player', 10, 10);
     w.selection.add(bx.id);
     w.resources.player = 200;
-    w.gas = 10;
+    w.gas.player = 10;
     const input = makeInput();
-    input.keyDownEdges.add('u');
+    input.keyDownEdges.add('c');
     runFrame(makeGame(w, input), 16);
     expect(bx.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(200);
-    expect(w.gas).toBe(10);
+    expect(w.gas.player).toBe(10);
   });
 
   it("Barracks selected + 'u' + placement active → no-op", () => {
@@ -451,50 +453,3 @@ describe('refinery / factory hotkeys via runFrame', () => {
   });
 });
 
-describe('contextual T hotkey (Worker→Turret, Factory→Tank)', () => {
-  it("Factory only selected + 't' edge → tank queued (no turret placement)", () => {
-    const w = createWorld();
-    const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
-    w.selection.add(fac.id);
-    w.resources.player = 1000;
-    w.gas = 200;
-    const input = makeInput();
-    input.keyDownEdges.add('t');
-    runFrame(makeGame(w, input), 16);
-    expect(w.placement).toBeNull();
-    expect(fac.productionQueue!.length).toBe(1);
-    expect(fac.productionQueue![0].produces).toBe('tank');
-    expect(w.resources.player).toBe(1000 - 250);
-    expect(w.gas).toBe(200 - 100);
-  });
-
-  it("Worker + Factory both selected + 't' → Worker wins (turret placement, no tank queued)", () => {
-    const w = createWorld();
-    const worker = spawnUnit(w, 'worker', 'player', cellToPx(10, 10));
-    const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
-    w.selection.add(worker.id);
-    w.selection.add(fac.id);
-    w.resources.player = 1000;
-    w.gas = 200;
-    const input = makeInput();
-    input.keyDownEdges.add('t');
-    runFrame(makeGame(w, input), 16);
-    expect(w.placement).not.toBeNull();
-    expect(w.placement!.buildingKind).toBe('turret');
-    expect(fac.productionQueue!.length).toBe(0);
-  });
-
-  it("Factory selected + 't' but insufficient gas → no tank queued", () => {
-    const w = createWorld();
-    const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
-    w.selection.add(fac.id);
-    w.resources.player = 1000;
-    w.gas = 50;
-    const input = makeInput();
-    input.keyDownEdges.add('t');
-    runFrame(makeGame(w, input), 16);
-    expect(fac.productionQueue!.length).toBe(0);
-    expect(w.resources.player).toBe(1000);
-    expect(w.gas).toBe(50);
-  });
-});

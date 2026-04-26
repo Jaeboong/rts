@@ -99,8 +99,12 @@ describe('ACTION_HOTKEYS mapping', () => {
     expect(ACTION_HOTKEYS['cancelPlacement']).toBe('Esc');
   });
 
-  it('produce-medic is U', () => {
-    expect(ACTION_HOTKEYS['produce-medic']).toBe('U');
+  it('produce-medic is C', () => {
+    expect(ACTION_HOTKEYS['produce-medic']).toBe('C');
+  });
+
+  it('build-commandCenter is V', () => {
+    expect(ACTION_HOTKEYS['build-commandCenter']).toBe('V');
   });
 });
 
@@ -169,21 +173,22 @@ describe('getButtonTooltip', () => {
     expect(t.lines).toEqual(['Cancel', 'Hotkey: Esc']);
   });
 
-  it('Medic button → 3 lines (name, mineral+gas cost, U hotkey)', () => {
+  it('Medic button → 3 lines (name, mineral+gas cost, C hotkey)', () => {
     const b = makeButton({ x: 0, y: 0, w: 92, h: 36 });
     b.action = { type: 'produce', unit: 'medic' };
     const t = getButtonTooltip(b);
-    expect(t.lines).toEqual(['Medic', 'Cost: 50M / 25G', 'Hotkey: U']);
+    expect(t.lines).toEqual(['Medic', 'Cost: 50M / 25G', 'Hotkey: C']);
   });
 
-  it('produces no cost line for zero-cost actions (commandCenter has cost 0)', () => {
-    // Defensive: even if a hypothetical zero-cost build button is added later,
-    // the tooltip should drop the cost line and keep name + hotkey only.
+  it('produces no cost line for zero-cost actions (supplyDepot has cost 0)', () => {
+    // Defensive: zero-cost build buttons drop the cost line entirely. supplyDepot
+    // is the canonical zero-cost building (gating is structural via mineralNode).
+    // commandCenter used to be the example here, but it's now buildable at 750M.
     const b = makeButton({ x: 0, y: 0, w: 92, h: 36 });
-    b.action = { type: 'beginPlace', building: 'commandCenter' };
+    b.action = { type: 'beginPlace', building: 'supplyDepot' };
     const t = getButtonTooltip(b);
-    expect(t.lines.length).toBe(1);
-    expect(t.lines[0]).toBe('Command Center');
+    // SupplyDepot has hotkey D, so name + hotkey = 2 lines (no cost line).
+    expect(t.lines).toEqual(['Supply Depot', 'Hotkey: D']);
   });
 });
 

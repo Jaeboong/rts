@@ -1,6 +1,20 @@
-import { CELL, type Entity } from '../../types';
+import { CELL, type Entity, type EntityId, type EntityKind } from '../../types';
 import { requestPath, shouldRepath } from './movement';
+import { ensureSpatialGrid, queryRadius } from './spatial-grid';
 import type { World } from '../world';
+
+// Reusable scratch buffer for spatialGrid queries. Module-scope to avoid
+// per-call allocation on the hot path (medic runs every tick).
+const healCandidates: EntityId[] = [];
+
+// Phase 49: medic now heals all armed friendlies (marine + tank + tank-light),
+// not just marines. Workers and other medics are excluded — workers self-heal
+// at the depot, medics shouldn't queue up to heal each other in formation.
+const HEAL_TARGET_KINDS: ReadonlySet<EntityKind> = new Set<EntityKind>([
+  'marine',
+  'tank',
+  'tank-light',
+]);
 
 // Hysteresis around the marine: don't path while inside leashMin; repath when outside leashMax.
 // Distance-only — spec asks "behind" but velocity-derived rear-position adds churn for negligible UX gain.
@@ -108,13 +122,28 @@ function enterIdle(medic: Entity): void {
   medic.pathTargetCell = null;
 }
 
+// Phase 49: scans armed friendly units (marine/tank/tank-light) and picks the
+// one with the LOWEST hp/hpMax ratio. Distance is the secondary tie-break.
+// Reasoning: a 10/200 tank dies in one shot if not healed; a 50/60 marine has
+// time. Heal the worst-off first.
+//
+// Uses spatialGrid (broad-phase) to avoid iterating every entity on big maps —
+// pre-Phase-49 this iterated all entities, which became O(N×M) when the medic
+// system ticked every entity that was a medic.
 function findClosestWoundedFriendly(world: World, medic: Entity): Entity | null {
   const sight = medic.sightRange ?? 0;
+  if (sight <= 0) return null;
+  ensureSpatialGrid(world);
+  queryRadius(world.spatialGrid, medic.pos.x, medic.pos.y, sight, healCandidates);
   const sightSq = sight * sight;
   let best: Entity | null = null;
-  let bestSq = Infinity;
-  for (const other of world.entities.values()) {
-    if (other.kind !== 'marine') continue;
+  let bestRatio = Infinity;
+  let bestD2 = Infinity;
+  for (const id of healCandidates) {
+    if (id === medic.id) continue;
+    const other = world.entities.get(id);
+    if (!other) continue;
+    if (!HEAL_TARGET_KINDS.has(other.kind)) continue;
     if (other.team !== medic.team) continue;
     if (other.dead) continue;
     if (other.hp >= other.hpMax) continue;
@@ -122,9 +151,11 @@ function findClosestWoundedFriendly(world: World, medic: Entity): Entity | null 
     const dy = other.pos.y - medic.pos.y;
     const d2 = dx * dx + dy * dy;
     if (d2 > sightSq) continue;
-    if (d2 < bestSq) {
+    const ratio = other.hp / Math.max(1, other.hpMax);
+    if (ratio < bestRatio || (ratio === bestRatio && d2 < bestD2)) {
       best = other;
-      bestSq = d2;
+      bestRatio = ratio;
+      bestD2 = d2;
     }
   }
   return best;

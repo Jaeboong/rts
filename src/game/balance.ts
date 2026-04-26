@@ -16,7 +16,10 @@ export interface BuildingDef {
 }
 
 export const BUILDING_DEFS: Record<BuildingKind, BuildingDef> = {
-  commandCenter: { hp: 1500, w: 15, h: 15, buildSeconds: 0, cost: 0 },
+  // Buildable: 750 minerals / 60s. Long build time matches CC's strategic
+  // weight (worker producer + drop-off). Non-hosted (no resource snap), so
+  // applyBuild uses the generic plot path. gasCost: 0 — minerals only.
+  commandCenter: { hp: 1500, w: 15, h: 15, buildSeconds: 60, cost: 750, gasCost: 0 },
   barracks: { hp: 1000, w: 7, h: 14, buildSeconds: 20, cost: 150 },
   turret: {
     hp: 200,

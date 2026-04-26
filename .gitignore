@@ -4,6 +4,10 @@ dist/
 *.log
 .DS_Store
 
+# Local env (contains Nanoclaw bearer token — never commit)
+.env
+.env.local
+
 # Claude Code
 .claude/settings.local.json
 .claude/worktrees/

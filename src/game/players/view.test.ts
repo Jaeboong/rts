@@ -88,8 +88,8 @@ describe('buildView', () => {
         ],
         "mapInfo": {
           "cellPx": 16,
-          "h": 128,
-          "w": 128,
+          "h": 256,
+          "w": 256,
         },
         "mineralIdMatches": true,
         "myKinds": [

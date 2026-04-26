@@ -354,7 +354,7 @@ describe('refinery placement', () => {
     w.selection.add(worker.id);
     w.placement = { team: 'player', buildingKind: 'factory' };
     w.resources.player = 1000;
-    w.gas = 50; // factory needs 200
+    w.gas.player = 50; // factory needs 200
     issueUIAction(makeGame(w), {
       type: 'confirmPlacement',
       x: 60 * CELL + 4,
@@ -363,7 +363,7 @@ describe('refinery placement', () => {
     // Still in placement because gas was insufficient.
     expect(w.placement).not.toBeNull();
     expect(w.resources.player).toBe(1000);
-    expect(w.gas).toBe(50);
+    expect(w.gas.player).toBe(50);
   });
 
   it('confirmPlacement: factory with sufficient resources → deducts both', () => {
@@ -372,7 +372,7 @@ describe('refinery placement', () => {
     w.selection.add(worker.id);
     w.placement = { team: 'player', buildingKind: 'factory' };
     w.resources.player = 500;
-    w.gas = 250;
+    w.gas.player = 250;
     issueUIAction(makeGame(w), {
       type: 'confirmPlacement',
       x: 60 * CELL + 4,
@@ -380,7 +380,7 @@ describe('refinery placement', () => {
     });
     expect(w.placement).toBeNull();
     expect(w.resources.player).toBe(100); // 500 - 400
-    expect(w.gas).toBe(50); // 250 - 200
+    expect(w.gas.player).toBe(50); // 250 - 200
   });
 });
 
@@ -586,6 +586,44 @@ describe('chooseUnitCommand: supplyDepot gather', () => {
     const node = spawnMineralNode(w, 30, 30, 1500);
     const cmd = chooseUnitCommand(w, worker, node, node.pos.x, node.pos.y, false);
     expect(cmd).toEqual({ type: 'gather', nodeId: node.id });
+  });
+});
+
+describe('chooseUnitCommand: under-construction priority over gather', () => {
+  it('worker right-click on under-construction supplyDepot → build (not gather)', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(5, 5));
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30, false);
+    expect(depot.underConstruction).toBe(true);
+    const cmd = chooseUnitCommand(w, worker, depot, depot.pos.x, depot.pos.y, false);
+    expect(cmd).toEqual({ type: 'build', buildingId: depot.id });
+  });
+
+  it('worker right-click on under-construction barracks → build (regression)', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(5, 5));
+    const brk = spawnBuilding(w, 'barracks', 'player', 30, 30, false);
+    expect(brk.underConstruction).toBe(true);
+    const cmd = chooseUnitCommand(w, worker, brk, brk.pos.x, brk.pos.y, false);
+    expect(cmd).toEqual({ type: 'build', buildingId: brk.id });
+  });
+
+  it('worker right-click on completed supplyDepot → gather (regression)', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(5, 5));
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30, true);
+    expect(depot.underConstruction).toBe(false);
+    const cmd = chooseUnitCommand(w, worker, depot, depot.pos.x, depot.pos.y, false);
+    expect(cmd).toEqual({ type: 'gather', nodeId: depot.id });
+  });
+
+  it('marine right-click on enemy under-construction supplyDepot → attack (enemy branch wins, regression)', () => {
+    const w = createWorld();
+    const marine = spawnUnit(w, 'marine', 'player', cellToPx(5, 5));
+    const enemyDepot = spawnBuilding(w, 'supplyDepot', 'enemy', 30, 30, false);
+    expect(enemyDepot.underConstruction).toBe(true);
+    const cmd = chooseUnitCommand(w, marine, enemyDepot, enemyDepot.pos.x, enemyDepot.pos.y, false);
+    expect(cmd).toEqual({ type: 'attack', targetId: enemyDepot.id });
   });
 });
 

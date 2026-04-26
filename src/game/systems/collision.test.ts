@@ -38,6 +38,22 @@ describe('collision system — separation push', () => {
     expect(d).toBeCloseTo(2 * r, 5);
   });
 
+  it('two marines straddling a bucket boundary still separate to exactly rA+rB (Phase 46.5 dedupe)', () => {
+    // Spatial-grid bucket = 64 px. Both units' AABBs span the x=64 boundary,
+    // so each is inserted into TWO buckets and appears twice in the other's
+    // broad-phase candidate list. Without per-`a` dedupe this caused 2× overlap
+    // application and units flew apart to ~2× the correct distance.
+    const w = createWorld();
+    const r = UNIT_DEFS.marine.radius;
+    const a = spawnUnit(w, 'marine', 'player', { x: 60, y: 100 });
+    const b = spawnUnit(w, 'marine', 'player', { x: 62, y: 100 });
+
+    runCollisionSystem(w);
+
+    const d = distance(a.pos.x, a.pos.y, b.pos.x, b.pos.y);
+    expect(d).toBeCloseTo(2 * r, 5);
+  });
+
   it('two marines at exactly rA+rB do not move', () => {
     const w = createWorld();
     const r = UNIT_DEFS.marine.radius;

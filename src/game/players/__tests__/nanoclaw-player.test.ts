@@ -285,6 +285,9 @@ describe('NanoclawPlayer — request body', () => {
     expect(body.groupFolder).toBe('rts-ai');
     expect(body.message).toContain('Tick: 0');
     expect(body.message).toContain('My units (2):');
+    // Phase 40-C: prompt now includes synthesized state + build phase ctx.
+    expect(body.message).toContain('--- Synthesized State ---');
+    expect(body.message).toContain('--- Current Build Phase ---');
   });
 
   it('honors a custom endpoint and groupFolder', async () => {
@@ -302,5 +305,156 @@ describe('NanoclawPlayer — request body', () => {
     expect(mock.calls[0].url).toBe('/custom/path');
     const body = JSON.parse(mock.calls[0].init?.body as string) as { groupFolder: string };
     expect(body.groupFolder).toBe('other-group');
+  });
+});
+
+describe('NanoclawPlayer — decision history feedback (Phase 40-C)', () => {
+  it('records a DecisionRecord when commands drained + onCommandResults fires', async () => {
+    let now = 0;
+    const mock = makeMockFetch(async () =>
+      jsonResponse({
+        success: true,
+        output: '[{"type":"attack","unitIds":[2],"targetId":99}]',
+      }),
+    );
+    const p = new NanoclawPlayer('enemy', {
+      intervalMs: 5000,
+      fetchFn: mock.fn,
+      nowFn: () => now,
+    });
+    // First tick — fires fetch.
+    p.tick(makeView(), 1 / 20);
+    await flushMicrotasks();
+    // Drain
+    const drained = p.tick(makeView(), 1 / 20);
+    expect(drained).toHaveLength(1);
+    // Simulate runner feeding back outcomes.
+    p.onCommandResults([{ cmd: drained[0], ok: true }]);
+    const history = p.recentDecisions();
+    expect(history).toHaveLength(1);
+    expect(history[0].results[0].ok).toBe(true);
+    expect(history[0].results[0].cmd.type).toBe('attack');
+  });
+
+  it('does not push a DecisionRecord on empty drain ticks', async () => {
+    let now = 0;
+    const mock = makeMockFetch(async () =>
+      jsonResponse({ success: true, output: '[]' }),
+    );
+    const p = new NanoclawPlayer('enemy', {
+      intervalMs: 5000,
+      fetchFn: mock.fn,
+      nowFn: () => now,
+    });
+    p.tick(makeView(), 1 / 20);
+    await flushMicrotasks();
+    p.tick(makeView(), 1 / 20); // drain []
+    p.onCommandResults([]); // runner still calls
+    expect(p.recentDecisions()).toHaveLength(0);
+  });
+
+  it('caps decision history at historyDepth', async () => {
+    let now = 0;
+    const mock = makeMockFetch(async () =>
+      jsonResponse({
+        success: true,
+        output: '[{"type":"attack","unitIds":[2],"targetId":99}]',
+      }),
+    );
+    const p = new NanoclawPlayer('enemy', {
+      intervalMs: 100,
+      fetchFn: mock.fn,
+      nowFn: () => now,
+      historyDepth: 3,
+    });
+    for (let i = 0; i < 7; i++) {
+      p.tick(makeView(), 1 / 20);
+      await flushMicrotasks();
+      const drained = p.tick(makeView(), 1 / 20);
+      p.onCommandResults(drained.map((cmd) => ({ cmd, ok: true })));
+      // Advance past the throttle window so the next iteration fires a new request.
+      now += 200;
+    }
+    expect(p.recentDecisions()).toHaveLength(3);
+  });
+
+  it('embeds decision history in the next prompt as feedback', async () => {
+    let now = 0;
+    const responses = [
+      '[{"type":"attack","unitIds":[2],"targetId":99}]',
+      '[]',
+    ];
+    let i = 0;
+    const mock = makeMockFetch(async () =>
+      jsonResponse({ success: true, output: responses[i++] ?? '[]' }),
+    );
+    const p = new NanoclawPlayer('enemy', {
+      intervalMs: 1000,
+      fetchFn: mock.fn,
+      nowFn: () => now,
+    });
+    // Cycle 1: fetch fires at now=0 (sets lastRequestMs=0).
+    p.tick(makeView(), 1 / 20);
+    await flushMicrotasks();
+    // Drain at now=0 — throttle still holds (now - lastRequestMs < 1000).
+    const drained = p.tick(makeView(), 1 / 20);
+    expect(mock.calls).toHaveLength(1); // sanity: no second fetch yet
+    p.onCommandResults(drained.map((cmd) => ({ cmd, ok: false, reason: 'attack target 99 missing or dead' })));
+    // Cycle 2: advance past throttle, next tick fires a new request whose prompt
+    // MUST show decision history.
+    now = 1500;
+    p.tick(makeView({ tick: 100 }), 1 / 20);
+    expect(mock.calls).toHaveLength(2);
+    const body = JSON.parse(mock.calls[1].init?.body as string) as { message: string };
+    expect(body.message).toContain('--- Your last 1 decisions ---');
+    expect(body.message).toContain('attack target 99 missing or dead');
+  });
+
+  it('records the tick of the request that produced the cmds, not the tick they drained on', async () => {
+    let now = 0;
+    const mock = makeMockFetch(async () =>
+      jsonResponse({
+        success: true,
+        output: '[{"type":"attack","unitIds":[2],"targetId":99}]',
+      }),
+    );
+    const p = new NanoclawPlayer('enemy', {
+      intervalMs: 5000,
+      fetchFn: mock.fn,
+      nowFn: () => now,
+    });
+    // Request fires at tick=42.
+    p.tick(makeView({ tick: 42 }), 1 / 20);
+    await flushMicrotasks();
+    // Drain happens later at tick=50.
+    const drained = p.tick(makeView({ tick: 50 }), 1 / 20);
+    p.onCommandResults(drained.map((cmd) => ({ cmd, ok: true })));
+    const history = p.recentDecisions();
+    expect(history[0].tickAtRequest).toBe(42);
+  });
+});
+
+describe('NanoclawPlayer — exposes summary + phase for inspector', () => {
+  it('lastStateSummary returns null before first request', () => {
+    const mock = makeMockFetch(async () => jsonResponse({ success: true, output: '[]' }));
+    const p = new NanoclawPlayer('enemy', {
+      intervalMs: 5000,
+      fetchFn: mock.fn,
+      nowFn: () => 0,
+    });
+    expect(p.lastStateSummary()).toBeNull();
+    expect(p.lastBuildPhase()).toBeNull();
+  });
+
+  it('lastStateSummary populated after a request fires', async () => {
+    const mock = makeMockFetch(async () => jsonResponse({ success: true, output: '[]' }));
+    const p = new NanoclawPlayer('enemy', {
+      intervalMs: 5000,
+      fetchFn: mock.fn,
+      nowFn: () => 0,
+    });
+    p.tick(makeView(), 1 / 20);
+    expect(p.lastStateSummary()).not.toBeNull();
+    expect(p.lastBuildPhase()).not.toBeNull();
   });
 });

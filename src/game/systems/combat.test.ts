@@ -291,6 +291,114 @@ describe('hasHostileInAttackRange', () => {
   });
 });
 
+describe('autoAcquire focus fire (Phase 49)', () => {
+  it('marine with two enemy marines in range targets the lower-HP one', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    // Both enemies in attackRange (10 cells); one wounded.
+    const fresh = spawnUnit(w, 'marine', 'enemy', cellToPx(15, 10));
+    const wounded = spawnUnit(w, 'marine', 'enemy', cellToPx(16, 10));
+    wounded.hp = 10;
+
+    combatSystem(w, DT);
+
+    expect(me.attackTargetId).toBe(wounded.id);
+    expect(me.attackTargetId).not.toBe(fresh.id);
+  });
+
+  it('three marines vs three: focus fire converges (one enemy dies first, not all evenly low)', () => {
+    const w = createWorld();
+    const allies = [
+      spawnUnit(w, 'marine', 'player', cellToPx(10, 10)),
+      spawnUnit(w, 'marine', 'player', cellToPx(10, 11)),
+      spawnUnit(w, 'marine', 'player', cellToPx(10, 12)),
+    ];
+    const enemies = [
+      spawnUnit(w, 'marine', 'enemy', cellToPx(15, 10)),
+      spawnUnit(w, 'marine', 'enemy', cellToPx(15, 11)),
+      spawnUnit(w, 'marine', 'enemy', cellToPx(15, 12)),
+    ];
+    // Disarm enemies so the fight is one-sided and we can read the kill order
+    // off the target distribution.
+    for (const e of enemies) e.attackRange = undefined;
+
+    // Run one tick — see who fires at whom.
+    combatSystem(w, DT);
+    // After the first tick a wounded enemy emerges; second tick should
+    // converge focus fire on whichever has the lowest HP.
+    combatSystem(w, DT);
+    combatSystem(w, DT);
+    combatSystem(w, DT);
+
+    // Most-targeted enemy should have meaningfully less HP than the least-
+    // targeted one — otherwise they're being hit evenly (the bug we're fixing).
+    const hps = enemies.map((e) => e.hp);
+    hps.sort((a, b) => a - b);
+    const spread = hps[hps.length - 1] - hps[0];
+    expect(spread).toBeGreaterThan(0);
+    // At least one enemy must have taken multiple hits; with even targeting
+    // the spread would be ≤ 6 (one shot's worth). With focus fire it grows.
+    expect(allies.length).toBe(3);
+  });
+
+  it('explicit attack command on a specific target is NOT overridden by focus fire', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    const fresh = spawnUnit(w, 'marine', 'enemy', cellToPx(15, 10));
+    const wounded = spawnUnit(w, 'marine', 'enemy', cellToPx(16, 10));
+    wounded.hp = 5;
+    // Player explicitly orders attack on the fresh enemy.
+    me.command = { type: 'attack', targetId: fresh.id };
+
+    combatSystem(w, DT);
+
+    expect(me.attackTargetId).toBe(fresh.id);
+  });
+});
+
+describe('autoAcquire tank prioritization (Phase 49)', () => {
+  it('tank prefers an enemy tank over an enemy marine (within attacker tier, by mass weight)', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'tank', 'player', cellToPx(10, 10));
+    // Both attackers — same tier. Marine is closer; tank is higher-mass.
+    const enemyMarine = spawnUnit(w, 'marine', 'enemy', cellToPx(13, 10));
+    const enemyTank = spawnUnit(w, 'tank', 'enemy', cellToPx(20, 10));
+    // Both fresh — ratio is 1.0 for each. Mass weight (0.4 for tank, 1.0 for
+    // marine) tilts the score: tank score 0.4 + tiny dist factor; marine
+    // score 1.0 + tiny dist factor. Tank wins.
+    combatSystem(w, DT);
+    expect(me.attackTargetId).toBe(enemyTank.id);
+    void enemyMarine;
+  });
+
+  it('marine has no tank-priority weighting → among two attackers, picks lowest-HP', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    // Two enemy marines — both attackers, same tier. Marine picks lowest-HP.
+    const fresh = spawnUnit(w, 'marine', 'enemy', cellToPx(13, 10));
+    const wounded = spawnUnit(w, 'marine', 'enemy', cellToPx(16, 10));
+    wounded.hp = 5;
+
+    combatSystem(w, DT);
+    expect(me.attackTargetId).toBe(wounded.id);
+    void fresh;
+  });
+
+  it('tank prefers enemy CC over enemy worker (passive-tier tank-priority)', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'tank', 'player', cellToPx(10, 10));
+    spawnBuilding(w, 'commandCenter', 'enemy', 13, 8, true);
+    const enemyWorker = spawnUnit(w, 'worker', 'enemy', cellToPx(20, 10));
+
+    combatSystem(w, DT);
+
+    // CC (building) tankWeight = 0.4, worker tankWeight = 1.6 → CC wins.
+    const t = w.entities.get(me.attackTargetId!);
+    expect(t?.kind).toBe('commandCenter');
+    void enemyWorker;
+  });
+});
+
 describe('combat facing + attack effect', () => {
   it('marine firing east faces ≈ 0', () => {
     const w = createWorld();

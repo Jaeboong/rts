@@ -18,6 +18,8 @@ function makeInput(): InputState {
     rightClicks: [],
     keyDownEdges: new Set(),
     dragCommit: null,
+    lastClickTime: 0,
+    lastClickedEntityId: null,
   };
 }
 
@@ -47,27 +49,27 @@ describe("'l' hotkey (Factory → tank-light)", () => {
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.selection.add(fac.id);
     w.resources.player = 500;
-    w.gas = 100;
+    w.gas.player = 100;
     const input = makeInput();
     input.keyDownEdges.add('l');
     runFrame(makeGame(w, input), 16);
     expect(fac.productionQueue!.length).toBe(1);
     expect(fac.productionQueue![0].produces).toBe('tank-light');
     expect(w.resources.player).toBe(500 - 120);
-    expect(w.gas).toBe(100 - 30);
+    expect(w.gas.player).toBe(100 - 30);
   });
 
   it("Worker selected + 'l' edge → no-op (Worker is not a producer)", () => {
     const w = createWorld();
     const worker = spawnUnit(w, 'worker', 'player', cellToPx(10, 10));
     w.selection.add(worker.id);
-    const before = { min: w.resources.player, gas: w.gas };
+    const before = { min: w.resources.player, gas: w.gas.player };
     const input = makeInput();
     input.keyDownEdges.add('l');
     runFrame(makeGame(w, input), 16);
     expect(w.placement).toBeNull();
     expect(w.resources.player).toBe(before.min);
-    expect(w.gas).toBe(before.gas);
+    expect(w.gas.player).toBe(before.gas);
   });
 
   it("Mixed (Factory + Marine) + 'l' edge → tank-light queued from Factory only", () => {
@@ -77,14 +79,14 @@ describe("'l' hotkey (Factory → tank-light)", () => {
     w.selection.add(fac.id);
     w.selection.add(marine.id);
     w.resources.player = 500;
-    w.gas = 100;
+    w.gas.player = 100;
     const input = makeInput();
     input.keyDownEdges.add('l');
     runFrame(makeGame(w, input), 16);
     expect(fac.productionQueue!.length).toBe(1);
     expect(fac.productionQueue![0].produces).toBe('tank-light');
     expect(w.resources.player).toBe(500 - 120);
-    expect(w.gas).toBe(100 - 30);
+    expect(w.gas.player).toBe(100 - 30);
   });
 
   it("placement-mode active + 'l' → no-op", () => {
@@ -93,13 +95,13 @@ describe("'l' hotkey (Factory → tank-light)", () => {
     w.selection.add(fac.id);
     w.placement = { team: 'player', buildingKind: 'barracks' };
     w.resources.player = 500;
-    w.gas = 100;
+    w.gas.player = 100;
     const input = makeInput();
     input.keyDownEdges.add('l');
     runFrame(makeGame(w, input), 16);
     expect(fac.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(500);
-    expect(w.gas).toBe(100);
+    expect(w.gas.player).toBe(100);
     expect(w.placement).not.toBeNull();
   });
 
@@ -109,13 +111,13 @@ describe("'l' hotkey (Factory → tank-light)", () => {
     w.selection.add(fac.id);
     w.attackMode = true;
     w.resources.player = 500;
-    w.gas = 100;
+    w.gas.player = 100;
     const input = makeInput();
     input.keyDownEdges.add('l');
     runFrame(makeGame(w, input), 16);
     expect(fac.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(500);
-    expect(w.gas).toBe(100);
+    expect(w.gas.player).toBe(100);
     expect(w.attackMode).toBe(true);
   });
 });

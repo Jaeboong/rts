@@ -33,7 +33,7 @@ const BUILDING_DISPLAY_NAME: Record<BuildingKind, string> = {
 export const ACTION_HOTKEYS: Readonly<Record<string, string>> = {
   'produce-worker': 'S',
   'produce-marine': 'M',
-  'produce-medic': 'U',
+  'produce-medic': 'C',
   'produce-tank': 'T',
   'produce-tank-light': 'L',
   'build-barracks': 'B',
@@ -41,6 +41,7 @@ export const ACTION_HOTKEYS: Readonly<Record<string, string>> = {
   'build-refinery': 'R',
   'build-factory': 'F',
   'build-supplyDepot': 'D',
+  'build-commandCenter': 'V',
   cancelPlacement: 'Esc',
 };
 

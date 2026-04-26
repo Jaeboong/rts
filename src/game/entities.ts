@@ -105,7 +105,9 @@ export function spawnMineralNode(
   world: World,
   cellX: number,
   cellY: number,
-  remaining = 15000,
+  // SC standard: 1500/patch. With ~3 workers per patch, depletes in ~17 minutes
+  // → forces expansion timing instead of infinite single-base play.
+  remaining = 1500,
 ): Entity {
   return addEntity(world, {
     kind: 'mineralNode',

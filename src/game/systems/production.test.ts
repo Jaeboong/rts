@@ -239,47 +239,47 @@ describe('production gas-cost gating', () => {
     const w = createWorld();
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.resources.player = 1000;
-    w.gas = 50; // tank needs 100
-    const before = { min: w.resources.player, gas: w.gas };
+    w.gas.player = 50; // tank needs 100
+    const before = { min: w.resources.player, gas: w.gas.player };
     const ok = enqueueProductionOn(w, fac, 'tank');
     expect(ok).toBe(false);
     expect(fac.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(before.min);
-    expect(w.gas).toBe(before.gas);
+    expect(w.gas.player).toBe(before.gas);
   });
 
   it('sufficient resources → tank queued, costs deducted (250 min + 100 gas)', () => {
     const w = createWorld();
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.resources.player = 500;
-    w.gas = 200;
+    w.gas.player = 200;
     const ok = enqueueProductionOn(w, fac, 'tank');
     expect(ok).toBe(true);
     expect(fac.productionQueue!.length).toBe(1);
     expect(fac.productionQueue![0].produces).toBe('tank');
     expect(w.resources.player).toBe(500 - 250);
-    expect(w.gas).toBe(200 - 100);
+    expect(w.gas.player).toBe(200 - 100);
   });
 
   it('gas-only-shortfall (mineral OK) → refused', () => {
     const w = createWorld();
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.resources.player = 9999;
-    w.gas = 0;
+    w.gas.player = 0;
     const ok = enqueueProductionOn(w, fac, 'tank');
     expect(ok).toBe(false);
     expect(w.resources.player).toBe(9999);
-    expect(w.gas).toBe(0);
+    expect(w.gas.player).toBe(0);
   });
 
   it('marine queue ignores gas (no gasCost) — stays unchanged', () => {
     const w = createWorld();
     const bx = spawnBuilding(w, 'barracks', 'player', 30, 30);
     w.resources.player = 50;
-    w.gas = 0;
+    w.gas.player = 0;
     const ok = enqueueProductionOn(w, bx, 'marine');
     expect(ok).toBe(true);
-    expect(w.gas).toBe(0);
+    expect(w.gas.player).toBe(0);
   });
 
   it('production system spawns a tank after seconds pass', () => {
@@ -307,44 +307,44 @@ describe('production: tank-light from factory', () => {
     const w = createWorld();
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.resources.player = 500;
-    w.gas = 200;
+    w.gas.player = 200;
     const ok = enqueueProductionOn(w, fac, 'tank-light');
     expect(ok).toBe(true);
     expect(fac.productionQueue!.length).toBe(1);
     expect(fac.productionQueue![0].produces).toBe('tank-light');
     expect(w.resources.player).toBe(500 - 120);
-    expect(w.gas).toBe(200 - 30);
+    expect(w.gas.player).toBe(200 - 30);
   });
 
   it('insufficient gas → tank-light queue refused, no resource change', () => {
     const w = createWorld();
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.resources.player = 1000;
-    w.gas = 10; // tank-light needs 30
+    w.gas.player = 10; // tank-light needs 30
     const ok = enqueueProductionOn(w, fac, 'tank-light');
     expect(ok).toBe(false);
     expect(fac.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(1000);
-    expect(w.gas).toBe(10);
+    expect(w.gas.player).toBe(10);
   });
 
   it('insufficient mineral → tank-light queue refused, no resource change', () => {
     const w = createWorld();
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.resources.player = 50; // tank-light needs 120
-    w.gas = 200;
+    w.gas.player = 200;
     const ok = enqueueProductionOn(w, fac, 'tank-light');
     expect(ok).toBe(false);
     expect(fac.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(50);
-    expect(w.gas).toBe(200);
+    expect(w.gas.player).toBe(200);
   });
 
   it('barracks cannot produce tank-light (wrong producer)', () => {
     const w = createWorld();
     const bx = spawnBuilding(w, 'barracks', 'player', 30, 30);
     w.resources.player = 500;
-    w.gas = 200;
+    w.gas.player = 200;
     const ok = enqueueProductionOn(w, bx, 'tank-light');
     expect(ok).toBe(false);
     expect(bx.productionQueue!.length).toBe(0);
@@ -356,43 +356,43 @@ describe('production: medic from barracks', () => {
     const w = createWorld();
     const bx = spawnBuilding(w, 'barracks', 'player', 30, 30);
     w.resources.player = 200;
-    w.gas = 100;
+    w.gas.player = 100;
     const ok = enqueueProductionOn(w, bx, 'medic');
     expect(ok).toBe(true);
     expect(bx.productionQueue!.length).toBe(1);
     expect(bx.productionQueue![0].produces).toBe('medic');
     expect(w.resources.player).toBe(200 - 50);
-    expect(w.gas).toBe(100 - 25);
+    expect(w.gas.player).toBe(100 - 25);
   });
 
   it('insufficient gas → medic queue refused, no resource change', () => {
     const w = createWorld();
     const bx = spawnBuilding(w, 'barracks', 'player', 30, 30);
     w.resources.player = 200;
-    w.gas = 10; // medic needs 25
+    w.gas.player = 10; // medic needs 25
     const ok = enqueueProductionOn(w, bx, 'medic');
     expect(ok).toBe(false);
     expect(bx.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(200);
-    expect(w.gas).toBe(10);
+    expect(w.gas.player).toBe(10);
   });
 
   it('insufficient mineral → refused', () => {
     const w = createWorld();
     const bx = spawnBuilding(w, 'barracks', 'player', 30, 30);
     w.resources.player = 10;
-    w.gas = 100;
+    w.gas.player = 100;
     const ok = enqueueProductionOn(w, bx, 'medic');
     expect(ok).toBe(false);
     expect(w.resources.player).toBe(10);
-    expect(w.gas).toBe(100);
+    expect(w.gas.player).toBe(100);
   });
 
   it('factory cannot produce medic (wrong producer)', () => {
     const w = createWorld();
     const fac = spawnBuilding(w, 'factory', 'player', 30, 30);
     w.resources.player = 500;
-    w.gas = 200;
+    w.gas.player = 200;
     const ok = enqueueProductionOn(w, fac, 'medic');
     expect(ok).toBe(false);
     expect(fac.productionQueue!.length).toBe(0);

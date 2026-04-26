@@ -29,7 +29,12 @@ export interface ProductionItem {
   remainingSeconds: number;
 }
 
-export type GatherSubState = 'toNode' | 'mining' | 'toDepot' | 'depositing';
+export type GatherSubState =
+  | 'toNode'
+  | 'mining'
+  | 'toDepot'
+  | 'depositing'
+  | 'waitForDepot';
 export type HealSubState = 'idle' | 'following' | 'healing';
 
 export interface Entity {
@@ -97,11 +102,38 @@ export interface Entity {
   // Refinery production accumulator (seconds of gas produced fractionally)
   gasAccumulator?: number;
 
+  // Idle-auto-gather: tick at which a worker first became idle (no command, no path,
+  // no gather sub-state). Cleared the moment any of those conditions flip. Used by
+  // idleAutoGatherSystem to trigger auto-gather after IDLE_THRESHOLD_TICKS elapsed.
+  idleSinceTick?: number;
+
+  // Last entity that dealt damage to this entity. Set in combatSystem before the
+  // hp deduction so a kill-shot also records the attacker. Never cleared — it's
+  // only read on death for event-tracker attribution, so staleness is harmless.
+  lastDamageBy?: EntityId;
+
+  // Phase 49 scripted tactical/micro state (engine-level, not LLM). Single optional
+  // struct so the Entity diff stays minimal:
+  //   phase 'retreating'  → low-HP unit walking back to nearest own CC
+  //   phase 'returning'   → finished a chase, walking back to engagementOrigin
+  //   engagementOrigin    → snapshot of pos at the start of the current engagement;
+  //                         used by chase logic to bound how far the unit roams from
+  //                         the line and to know where to walk back to.
+  // Cleared by tacticalSystem when the trigger condition flips (HP recovers, chase
+  // returned home, target lost). See systems/tactical.ts for invariants.
+  tacticalState?: {
+    phase?: 'retreating' | 'returning';
+    engagementOrigin?: Vec2;
+  };
+
   dead?: boolean;
 }
 
 export const CELL = 16;
-export const GRID_W = 128;
-export const GRID_H = 128;
+// Phase 46 — map v2 expansion: 4× area (128² → 256²) for explicit expansion gameplay.
+// All grid-derived constants below auto-track. Other modules (pathfinding, occupancy,
+// renderer culling) consume GRID_W/GRID_H, so this is the single mutation point.
+export const GRID_W = 256;
+export const GRID_H = 256;
 export const WORLD_W = GRID_W * CELL;
 export const WORLD_H = GRID_H * CELL;

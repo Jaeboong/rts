@@ -166,13 +166,29 @@ describe('healing system: target loss', () => {
 });
 
 describe('healing system: target priority', () => {
-  it('multiple wounded marines → medic targets the closest', () => {
+  // Phase 49: changed from "closest wounded" to "lowest HP-ratio wounded".
+  // Reasoning: a marine at 10/60 dies in two enemy shots; a marine at 50/60
+  // has time. Heal the worst-off first even if slightly farther.
+  it('multiple wounded marines → medic targets the lowest HP ratio (Phase 49)', () => {
     const w = createWorld();
     const med = spawnUnit(w, 'medic', 'player', cellToPx(10, 10));
     const near = spawnUnit(w, 'marine', 'player', cellToPx(13, 10));
     const far = spawnUnit(w, 'marine', 'player', cellToPx(20, 10));
+    near.hp = 40; // ratio 0.67
+    far.hp = 30;  // ratio 0.50 — wins despite being farther
+    runHealingSystem(w, DT);
+    expect(med.healSubState).toBe('healing');
+    expect(med.healTargetId).toBe(far.id);
+  });
+
+  it('multiple wounded marines tied on HP ratio → medic targets the closest (distance tie-break)', () => {
+    const w = createWorld();
+    const med = spawnUnit(w, 'medic', 'player', cellToPx(10, 10));
+    const near = spawnUnit(w, 'marine', 'player', cellToPx(13, 10));
+    const far = spawnUnit(w, 'marine', 'player', cellToPx(20, 10));
+    // Both at the same ratio (40/60 = 0.667) — distance breaks the tie.
     near.hp = 40;
-    far.hp = 30;
+    far.hp = 40;
     runHealingSystem(w, DT);
     expect(med.healSubState).toBe('healing');
     expect(med.healTargetId).toBe(near.id);

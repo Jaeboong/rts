@@ -18,6 +18,8 @@ function makeInput(): InputState {
     rightClicks: [],
     keyDownEdges: new Set(),
     dragCommit: null,
+    lastClickTime: 0,
+    lastClickedEntityId: null,
   };
 }
 
@@ -289,14 +291,14 @@ describe('Esc cancel refunds gas for gas-cost items', () => {
       remainingSeconds: 30,
     });
     w.resources.player = 0;
-    w.gas = 0;
+    w.gas.player = 0;
     const input = makeInput();
     input.keys.add('escape');
     input.keyDownEdges.add('escape');
     runFrame(makeGame(w, input), 16);
     expect(fac.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(250);
-    expect(w.gas).toBe(100);
+    expect(w.gas.player).toBe(100);
   });
 
   it('Marine cancel does NOT touch gas (no gasCost)', () => {
@@ -309,13 +311,13 @@ describe('Esc cancel refunds gas for gas-cost items', () => {
       remainingSeconds: 15,
     });
     w.resources.player = 0;
-    w.gas = 7;
+    w.gas.player = 7;
     const input = makeInput();
     input.keys.add('escape');
     input.keyDownEdges.add('escape');
     runFrame(makeGame(w, input), 16);
     expect(bx.productionQueue!.length).toBe(0);
     expect(w.resources.player).toBe(50);
-    expect(w.gas).toBe(7);
+    expect(w.gas.player).toBe(7);
   });
 });

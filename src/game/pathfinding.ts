@@ -17,6 +17,52 @@ const NEIGHBORS: Array<[number, number, number]> = [
   [-1, -1, Math.SQRT2],
 ];
 
+// Module-scope pooled buffers for A*. JS is single-threaded and findPath does
+// not recurse / yield mid-call, so reuse is safe. Lazy-allocate on first use
+// AND on grid-size change (Phase 46 quadruples GRID_W*GRID_H, and tests can
+// also call findPath before any actual ticks). 256² grid → ~1MB per call
+// without pooling; reuse drops that to a fixed 1MB resident.
+//
+// Generation-counter reset: rather than .fill()-ing all four buffers on each
+// call (~262k writes at 256²), we stamp a u32 `generation` per visited cell.
+// A cell's gScore/fScore/cameFrom/visited are only valid when
+// gens[i] === currentGen; otherwise they're treated as Infinity / -1 / 0.
+// Fresh `Uint32Array` is zero-initialized, so any non-zero `currentGen` makes
+// every cell read as "stale" without an explicit clear. Overflow at 2^32
+// generations is years of solid play; ignore.
+let poolGScore: Float32Array | null = null;
+let poolFScore: Float32Array | null = null;
+let poolCameFrom: Int32Array | null = null;
+let poolVisited: Uint8Array | null = null;
+let poolGens: Uint32Array | null = null;
+let currentGen = 0;
+
+function ensureBuffers(total: number): {
+  gScore: Float32Array;
+  fScore: Float32Array;
+  cameFrom: Int32Array;
+  visited: Uint8Array;
+  gens: Uint32Array;
+} {
+  if (!poolGScore || poolGScore.length !== total) {
+    poolGScore = new Float32Array(total);
+    poolFScore = new Float32Array(total);
+    poolCameFrom = new Int32Array(total);
+    poolVisited = new Uint8Array(total);
+    poolGens = new Uint32Array(total);
+    // currentGen is intentionally NOT reset on realloc: a fresh gens array is
+    // all 0, and currentGen will be ≥ 1 after the first findPath call below
+    // (or already >0 here on re-alloc), so every cell reads as stale anyway.
+  }
+  return {
+    gScore: poolGScore,
+    fScore: poolFScore!,
+    cameFrom: poolCameFrom!,
+    visited: poolVisited!,
+    gens: poolGens!,
+  };
+}
+
 /**
  * A* on the grid. Returns waypoints in pixel coords (cell centers), excluding
  * the start cell and including the goal. Returns null if no path.
@@ -38,19 +84,22 @@ export function findPath(
   if (fromCellX === toCellX && fromCellY === toCellY) return [];
 
   const total = GRID_W * GRID_H;
-  const gScore = new Float32Array(total);
-  const fScore = new Float32Array(total);
-  const cameFrom = new Int32Array(total);
-  const visited = new Uint8Array(total);
-  gScore.fill(Infinity);
-  fScore.fill(Infinity);
-  cameFrom.fill(-1);
+  const buffers = ensureBuffers(total);
+  const { gScore, fScore, cameFrom, visited, gens } = buffers;
+  // Bump generation instead of .fill()-ing all 4 buffers (~262k writes at
+  // 256²). Any cell where gens[i] !== gen is implicitly "fresh" — its stored
+  // gScore/fScore/cameFrom/visited values are stale and must be ignored.
+  currentGen++;
+  const gen = currentGen;
 
   const startIdx = cellIndex(fromCellX, fromCellY);
   const goalIdx = cellIndex(toCellX, toCellY);
 
+  gens[startIdx] = gen;
   gScore[startIdx] = 0;
   fScore[startIdx] = heuristic(fromCellX, fromCellY, toCellX, toCellY);
+  visited[startIdx] = 0;
+  cameFrom[startIdx] = -1;
 
   const open = new BinaryHeap();
   open.push(startIdx, fScore[startIdx]);
@@ -58,13 +107,17 @@ export function findPath(
   while (open.size() > 0) {
     const current = open.pop();
     if (current === goalIdx) {
-      return reconstruct(cameFrom, current, fromCellX, fromCellY);
+      return reconstruct(cameFrom, gens, gen, current, fromCellX, fromCellY);
     }
-    if (visited[current]) continue;
+    // visited bit only meaningful when stamped this generation; otherwise
+    // treat as unvisited (stale value from a prior search).
+    if (gens[current] === gen && visited[current]) continue;
+    gens[current] = gen;
     visited[current] = 1;
 
     const cx = current % GRID_W;
     const cy = Math.floor(current / GRID_W);
+    const currentG = gScore[current];
 
     for (const [dx, dy, w] of NEIGHBORS) {
       const nx = cx + dx;
@@ -88,8 +141,16 @@ export function findPath(
           continue;
         }
       }
-      const tentative = gScore[current] + w;
-      if (tentative < gScore[nIdx]) {
+      const tentative = currentG + w;
+      // Existing gScore[nIdx] only valid if stamped this gen; otherwise treat
+      // as Infinity so the first visit always writes through.
+      const existingG =
+        gens[nIdx] === gen ? gScore[nIdx] : Number.POSITIVE_INFINITY;
+      if (tentative < existingG) {
+        // Stamp gen + clear stale visited bit so this neighbor is poppable
+        // even if it carried visited=1 from a prior search.
+        gens[nIdx] = gen;
+        visited[nIdx] = 0;
         cameFrom[nIdx] = current;
         gScore[nIdx] = tentative;
         const f = tentative + heuristic(nx, ny, toCellX, toCellY);
@@ -109,6 +170,8 @@ function heuristic(ax: number, ay: number, bx: number, by: number): number {
 
 function reconstruct(
   cameFrom: Int32Array,
+  gens: Uint32Array,
+  gen: number,
   goal: number,
   fromCellX: number,
   fromCellY: number,
@@ -120,6 +183,9 @@ function reconstruct(
     const cy = Math.floor(cur / GRID_W);
     if (cx === fromCellX && cy === fromCellY) break;
     path.push({ x: cx * CELL + CELL / 2, y: cy * CELL + CELL / 2 });
+    // cameFrom[cur] only valid if stamped this gen; defensive — the search
+    // only follows back-pointers it just wrote, so this should always hold.
+    if (gens[cur] !== gen) break;
     cur = cameFrom[cur];
   }
   path.reverse();

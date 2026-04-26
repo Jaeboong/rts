@@ -39,7 +39,7 @@ export function buildView(
     tick: world.tickCount,
     resources: {
       minerals: world.resources[team] ?? 0,
-      gas: team === 'player' ? world.gas : 0,
+      gas: world.gas[team] ?? 0,
     },
     myEntities,
     visibleEnemies,
@@ -59,6 +59,8 @@ function sanitize(e: Entity): ViewEntity {
     cellX: e.cellX,
     cellY: e.cellY,
     underConstruction: e.underConstruction,
+    commandType: e.command?.type,
+    lastDamageBy: e.lastDamageBy,
   };
   return out;
 }

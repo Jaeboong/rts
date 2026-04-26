@@ -131,32 +131,45 @@ describe('isPointOverHud', () => {
 });
 
 // createGame depends on window (createInput); stub `window` for this single check.
-describe('createGame speedFactor default', () => {
-  it('initializes speedFactor to 1', () => {
-    const stubCanvas = {
-      addEventListener: () => {},
-      getBoundingClientRect: () => ({
-        left: 0,
-        top: 0,
-        width: 800,
-        height: 600,
-      }),
-      clientWidth: 800,
-      clientHeight: 600,
-      style: {},
-    } as unknown as HTMLCanvasElement;
-    const stubCtx = {} as unknown as CanvasRenderingContext2D;
-    // window.addEventListener is invoked by createInput. Provide a no-op shim.
+describe('createGame defaults', () => {
+  function withStubWindow<T>(fn: () => T): T {
     const g_unknown = globalThis as unknown as { window?: { addEventListener: () => void } };
     const hadWindow = 'window' in globalThis;
     if (!hadWindow) g_unknown.window = { addEventListener: () => {} };
     try {
-      const w = createWorld();
-      const g = createGame(stubCanvas, stubCtx, w);
-      expect(g.speedFactor).toBe(1);
+      return fn();
     } finally {
       if (!hadWindow) delete g_unknown.window;
     }
+  }
+  const stubCanvas = {
+    addEventListener: () => {},
+    getBoundingClientRect: () => ({
+      left: 0,
+      top: 0,
+      width: 800,
+      height: 600,
+    }),
+    clientWidth: 800,
+    clientHeight: 600,
+    style: {},
+  } as unknown as HTMLCanvasElement;
+  const stubCtx = {} as unknown as CanvasRenderingContext2D;
+
+  it('initializes speedFactor to 1', () => {
+    withStubWindow(() => {
+      const w = createWorld();
+      const g = createGame(stubCanvas, stubCtx, w);
+      expect(g.speedFactor).toBe(1);
+    });
+  });
+
+  it('initializes paused to false', () => {
+    withStubWindow(() => {
+      const w = createWorld();
+      const g = createGame(stubCanvas, stubCtx, w);
+      expect(g.paused).toBe(false);
+    });
   });
 });
 

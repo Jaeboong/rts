@@ -157,11 +157,11 @@ export function issueUIAction(game: Game, action: ExtendedUIAction): void {
 
       if (world.resources.player < def.cost) return;
       const gasCost = def.gasCost ?? 0;
-      if (gasCost > 0 && world.gas < gasCost) return;
+      if (gasCost > 0 && world.gas.player < gasCost) return;
       const worker = firstSelectedWorker(world);
       if (!worker) return;
       world.resources.player -= def.cost;
-      if (gasCost > 0) world.gas -= gasCost;
+      if (gasCost > 0) world.gas.player -= gasCost;
       const site = spawnBuilding(world, kind, 'player', cellX, cellY, false);
       if (claimedGeyser) {
         claimedGeyser.refineryId = site.id;
@@ -234,9 +234,9 @@ export function enqueueProductionOn(
   if (producer.underConstruction) return false;
   if (world.resources.player < def.cost) return false;
   const gasCost = def.gasCost ?? 0;
-  if (gasCost > 0 && world.gas < gasCost) return false;
+  if (gasCost > 0 && world.gas.player < gasCost) return false;
   world.resources.player -= def.cost;
-  if (gasCost > 0) world.gas -= gasCost;
+  if (gasCost > 0) world.gas.player -= gasCost;
   producer.productionQueue!.push({
     produces: unit,
     totalSeconds: def.seconds,
@@ -319,7 +319,7 @@ export function cancelLastProduction(world: World, building: Entity): boolean {
   const def = UNIT_PRODUCTION[popped.produces];
   if (def) {
     world.resources[building.team] += def.cost;
-    if (building.team === 'player' && def.gasCost) world.gas += def.gasCost;
+    if (def.gasCost) world.gas[building.team] += def.gasCost;
   }
   return true;
 }
@@ -352,12 +352,10 @@ export function chooseUnitCommand(
       }
       return { type: 'attack', targetId: target.id };
     }
-    if (
-      (target.kind === 'mineralNode' || target.kind === 'supplyDepot') &&
-      unit.kind === 'worker'
-    ) {
-      return { type: 'gather', nodeId: target.id };
-    }
+    // Under-construction allied building must be checked before the
+    // mineralNode/supplyDepot gather branch, otherwise an in-progress depot
+    // (or refinery) traps workers in a gather command instead of resuming the
+    // build.
     if (
       isBuilding(target) &&
       target.team === unit.team &&
@@ -365,6 +363,12 @@ export function chooseUnitCommand(
       unit.kind === 'worker'
     ) {
       return { type: 'build', buildingId: target.id };
+    }
+    if (
+      (target.kind === 'mineralNode' || target.kind === 'supplyDepot') &&
+      unit.kind === 'worker'
+    ) {
+      return { type: 'gather', nodeId: target.id };
     }
   }
   if (shift && unit.attackRange !== undefined) {

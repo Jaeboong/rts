@@ -49,10 +49,20 @@ interface SlotBin {
   exact: TileSlot[];
 }
 
-type Bins = Map<string, SlotBin>;
+type Bins = Map<number, SlotBin>;
 
-function binKey(cls: TerrainBaseClass, mask: number): string {
-  return `${cls}:${mask}`;
+// Integer key avoids ~1.5M string allocations/sec on the renderer hot path
+// (~490k cell picks at 1080p × 60fps; was `${cls}:${mask}`). Mask fits in 4
+// bits (N|E|S|W) so a class index in the upper 4 bits leaves 8-bit total.
+const CLASS_IDX: Readonly<Record<TerrainBaseClass, number>> = {
+  dirt: 0,
+  grass: 1,
+  water: 2,
+  wall: 3,
+};
+
+function binKey(cls: TerrainBaseClass, mask: number): number {
+  return (CLASS_IDX[cls] << 4) | (mask & 0xf);
 }
 
 function buildBins(slots: readonly TileSlot[]): Bins {

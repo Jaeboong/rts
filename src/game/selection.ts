@@ -1,8 +1,48 @@
 import { CELL, type BuildingKind, type Entity } from '../types';
 import type { World } from './world';
 
+// StarCraft-style same-kind expansion radius in cells. 10 cells matches the
+// spec; world distance = EXPAND_RADIUS_CELLS * CELL pixels.
+export const EXPAND_RADIUS_CELLS = 10;
+
 export function clearSelection(world: World): void {
   world.selection.clear();
+}
+
+/**
+ * Same-kind multi-select expansion (double-click / ctrl-click gesture).
+ *
+ * Selects every player-team unit of the same kind as `hit` whose center lies
+ * within EXPAND_RADIUS_CELLS cells of `hit`.
+ *
+ * `additive=false` replaces the current selection (double-click, ctrl+click).
+ * `additive=true` unions with the current selection (ctrl+shift+click).
+ *
+ * Same-kind expansion is intentionally PLAYER-TEAM ONLY — grouping enemies
+ * has no command meaning, and would also leak counts of off-screen enemy units
+ * the player shouldn't see. Buildings/resources are excluded because there's
+ * no group production for buildings (each only queues its own units), so
+ * expanding them only confuses the user. Callers must gate on those rules
+ * before calling — this function asserts and is a no-op for non-player-units.
+ */
+export function applySameKindExpand(
+  world: World,
+  hit: Entity,
+  additive: boolean,
+): void {
+  if (!isUnit(hit) || hit.team !== 'player') return;
+  const radiusPx = EXPAND_RADIUS_CELLS * CELL;
+  const r2 = radiusPx * radiusPx;
+  const ids: number[] = [];
+  for (const e of world.entities.values()) {
+    if (e.kind !== hit.kind) continue;
+    if (e.team !== 'player') continue;
+    const dx = e.pos.x - hit.pos.x;
+    const dy = e.pos.y - hit.pos.y;
+    if (dx * dx + dy * dy <= r2) ids.push(e.id);
+  }
+  if (!additive) world.selection.clear();
+  for (const id of ids) world.selection.add(id);
 }
 
 export function applyClick(

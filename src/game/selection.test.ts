@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CELL } from '../types';
 import { spawnBuilding, spawnUnit } from './entities';
-import { applyClick, applyDragBox } from './selection';
+import {
+  applyClick,
+  applyDragBox,
+  applySameKindExpand,
+  EXPAND_RADIUS_CELLS,
+} from './selection';
 import { cellToPx, createWorld } from './world';
 
 describe('applyDragBox: same-kind multi-select rule for buildings', () => {
@@ -163,5 +168,148 @@ describe('applyClick: shift-add building rule', () => {
 
     expect(w.selection.has(cc.id)).toBe(false);
     expect(w.selection.has(brk.id)).toBe(true);
+  });
+});
+
+describe('applySameKindExpand: same-kind in-radius unit expansion', () => {
+  it('replace mode: expands to all same-kind player units within radius', () => {
+    const w = createWorld();
+    const center = spawnUnit(w, 'marine', 'player', cellToPx(20, 20));
+    const near = spawnUnit(w, 'marine', 'player', cellToPx(25, 20));
+    const alsoNear = spawnUnit(w, 'marine', 'player', cellToPx(20, 28));
+
+    applySameKindExpand(w, center, false);
+
+    expect(w.selection.has(center.id)).toBe(true);
+    expect(w.selection.has(near.id)).toBe(true);
+    expect(w.selection.has(alsoNear.id)).toBe(true);
+    expect(w.selection.size).toBe(3);
+  });
+
+  it('excludes same-kind units beyond the radius', () => {
+    const w = createWorld();
+    const center = spawnUnit(w, 'marine', 'player', cellToPx(20, 20));
+    // EXPAND_RADIUS_CELLS=10 → place a marine 11 cells away (just outside).
+    const far = spawnUnit(
+      w,
+      'marine',
+      'player',
+      cellToPx(20 + EXPAND_RADIUS_CELLS + 1, 20),
+    );
+
+    applySameKindExpand(w, center, false);
+
+    expect(w.selection.has(center.id)).toBe(true);
+    expect(w.selection.has(far.id)).toBe(false);
+  });
+
+  it('excludes different-kind units within radius', () => {
+    const w = createWorld();
+    const m = spawnUnit(w, 'marine', 'player', cellToPx(20, 20));
+    const wkr = spawnUnit(w, 'worker', 'player', cellToPx(22, 20));
+
+    applySameKindExpand(w, m, false);
+
+    expect(w.selection.has(m.id)).toBe(true);
+    expect(w.selection.has(wkr.id)).toBe(false);
+  });
+
+  it('excludes enemy units of the same kind within radius', () => {
+    const w = createWorld();
+    const player = spawnUnit(w, 'marine', 'player', cellToPx(20, 20));
+    // Same kind, opposite team — the team filter must reject it BEFORE the kind
+    // filter has anything to do. Use marine+enemy (kinds match, teams differ).
+    const enemyMarine = spawnUnit(w, 'marine', 'enemy', cellToPx(22, 20));
+
+    applySameKindExpand(w, player, false);
+
+    expect(w.selection.has(player.id)).toBe(true);
+    expect(w.selection.has(enemyMarine.id)).toBe(false);
+  });
+
+  it('replace mode: clears prior selection before adding expanded set', () => {
+    const w = createWorld();
+    const m1 = spawnUnit(w, 'marine', 'player', cellToPx(20, 20));
+    const m2 = spawnUnit(w, 'marine', 'player', cellToPx(22, 20));
+    const wkr = spawnUnit(w, 'worker', 'player', cellToPx(50, 50));
+    w.selection.add(wkr.id);
+
+    applySameKindExpand(w, m1, false);
+
+    expect(w.selection.has(wkr.id)).toBe(false);
+    expect(w.selection.has(m1.id)).toBe(true);
+    expect(w.selection.has(m2.id)).toBe(true);
+  });
+
+  it('additive mode: keeps prior selection AND adds expanded set', () => {
+    const w = createWorld();
+    const m1 = spawnUnit(w, 'marine', 'player', cellToPx(20, 20));
+    const m2 = spawnUnit(w, 'marine', 'player', cellToPx(22, 20));
+    const wkr = spawnUnit(w, 'worker', 'player', cellToPx(50, 50));
+    w.selection.add(wkr.id);
+
+    applySameKindExpand(w, m1, true);
+
+    expect(w.selection.has(wkr.id)).toBe(true);
+    expect(w.selection.has(m1.id)).toBe(true);
+    expect(w.selection.has(m2.id)).toBe(true);
+  });
+
+  it('no-op for enemy unit hit (player-team-only contract)', () => {
+    const w = createWorld();
+    const enemy = spawnUnit(w, 'enemyDummy', 'enemy', cellToPx(20, 20));
+    w.selection.add(99); // sentinel to confirm selection is left alone
+
+    applySameKindExpand(w, enemy, false);
+
+    expect(w.selection.has(enemy.id)).toBe(false);
+    expect(w.selection.has(99)).toBe(true);
+  });
+
+  it('no-op for building hit (player-team-only and unit-only contract)', () => {
+    const w = createWorld();
+    const cc = spawnBuilding(w, 'commandCenter', 'player', 4, 4);
+    w.selection.add(99); // sentinel
+
+    applySameKindExpand(w, cc, false);
+
+    expect(w.selection.has(cc.id)).toBe(false);
+    expect(w.selection.has(99)).toBe(true);
+  });
+
+  it('uses Euclidean radius (squared distance), not bounding box', () => {
+    const w = createWorld();
+    const center = spawnUnit(w, 'marine', 'player', cellToPx(20, 20));
+    // Diagonal corner of the bounding box (10√2 ≈ 14.14 cells) is OUT of the
+    // circular radius. Place a marine at (cx+8, cy+8) → distance ≈ 11.31 cells
+    // = OUT. And (cx+7, cy+7) ≈ 9.9 cells = IN.
+    const inside = spawnUnit(w, 'marine', 'player', cellToPx(27, 27));
+    const outside = spawnUnit(w, 'marine', 'player', cellToPx(28, 28));
+
+    applySameKindExpand(w, center, false);
+
+    expect(w.selection.has(center.id)).toBe(true);
+    expect(w.selection.has(inside.id)).toBe(true);
+    expect(w.selection.has(outside.id)).toBe(false);
+  });
+
+  it('CELL=16 sanity: radius is exactly EXPAND_RADIUS_CELLS * CELL pixels', () => {
+    const w = createWorld();
+    const center = spawnUnit(w, 'marine', 'player', { x: 100, y: 100 });
+    // Place a marine at exactly radius distance along the x-axis.
+    const onBoundary = spawnUnit(w, 'marine', 'player', {
+      x: 100 + EXPAND_RADIUS_CELLS * CELL,
+      y: 100,
+    });
+    // And one just past it.
+    const justOver = spawnUnit(w, 'marine', 'player', {
+      x: 100 + EXPAND_RADIUS_CELLS * CELL + 1,
+      y: 100,
+    });
+
+    applySameKindExpand(w, center, false);
+
+    expect(w.selection.has(onBoundary.id)).toBe(true);
+    expect(w.selection.has(justOver.id)).toBe(false);
   });
 });

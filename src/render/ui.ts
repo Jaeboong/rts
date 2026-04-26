@@ -1,7 +1,15 @@
 import { BUILDING_DEFS, UNIT_PRODUCTION } from '../game/balance';
+import type { Camera } from '../game/camera';
 import type { SpeedFactor } from '../game/loop';
+import type { InspectableLLMPlayer } from '../game/players/types';
 import type { World } from '../game/world';
 import type { BuildingKind, Entity } from '../types';
+import { aiInspectorPanelRect, syncAIInspectorPanel } from './ai-inspector-panel';
+import {
+  drawEnemySelectOverlay,
+  isEnemySelectOverlayActive,
+} from './enemy-select-overlay';
+import { drawMinimap, isPointInMinimap } from './minimap';
 import {
   computeProductionQueuePanel,
   drawProductionQueuePanel,
@@ -31,6 +39,112 @@ export interface HUDState {
   fps: number;
   tickCount: number;
   buttons: UIButton[];
+  aiInspectorOpen?: boolean;
+  // Phase 42: HUD-side mirror of the runtime enemy AI selector. Set each
+  // frame from the loop; ui.ts uses this to highlight the active enemy
+  // button + render the "warming…" badge. Defaults reasonable for tests.
+  activeEnemyKind?: EnemyKind;
+  enemyWarming?: boolean;
+  // Modal startup AI-picker. Decoupled from activeEnemyKind so the modal can
+  // run a backend-start step before swapping. Set true after a successful pick.
+  enemyOverlayDismissed?: boolean;
+  // While set, the overlay's POST /api/start-backend is in flight; click loop
+  // ignores further button clicks and the overlay shows a "starting" state.
+  backendStartingKind?: EnemyKindButton;
+  // Last failed start attempt — overlay renders this in red below the buttons.
+  // Cleared on next click.
+  backendStartError?: string;
+  // Phase 53 — map dropdown on the AI-selector modal.
+  // mapList: filenames (without .json) from GET /api/maps; empty until fetch
+  //   resolves. Default option is rendered separately with the special name '_default_'.
+  // selectedMap: '_default_' or a value from mapList; what the loader will fetch.
+  mapList?: readonly string[];
+  selectedMap?: string;
+}
+
+// Sentinel for "use the built-in expansion-front preset". '_default_' is illegal
+// per MAP_NAME_RE so it can never collide with a user-saved map name.
+export const DEFAULT_MAP_KEY = '_default_';
+
+export const AI_INSPECT_BTN_W = 36;
+export const AI_INSPECT_BTN_H = 22;
+const AI_INSPECT_BTN_GAP = 8;
+
+// 'none' = no enemy AI active (initial startup state until the user clicks a
+// button). It never gets a button — the absence of any highlighted button IS
+// the visual signal. Buttons keep the 3-kind order.
+export type EnemyKind = 'none' | 'claude' | 'codex' | 'scripted';
+export type EnemyKindButton = Exclude<EnemyKind, 'none'>;
+export const ENEMY_KIND_BTN_ORDER: readonly EnemyKindButton[] = [
+  'claude',
+  'codex',
+  'scripted',
+] as const;
+const ENEMY_KIND_LABELS: Record<EnemyKindButton, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  scripted: 'Scripted',
+};
+const ENEMY_KIND_BTN_W = 64;
+const ENEMY_KIND_BTN_H = 22;
+const ENEMY_KIND_BTN_GAP = 4;
+const ENEMY_KIND_BTN_GROUP_GAP = 8;
+const ENEMY_KIND_BTN_GROUP_W =
+  ENEMY_KIND_BTN_ORDER.length * ENEMY_KIND_BTN_W +
+  (ENEMY_KIND_BTN_ORDER.length - 1) * ENEMY_KIND_BTN_GAP;
+
+export function aiInspectButtonRect(viewW: number): Rect {
+  // Sits to the LEFT of the entire top-right block (speed + resource + attack)
+  // so it never collides with speed buttons regardless of how many factors exist.
+  return {
+    x: viewW - TOP_RIGHT_W - AI_INSPECT_BTN_GAP - AI_INSPECT_BTN_W,
+    y: SPEED_BTN_Y,
+    w: AI_INSPECT_BTN_W,
+    h: AI_INSPECT_BTN_H,
+  };
+}
+
+export function isAiInspectButtonAt(
+  x: number,
+  y: number,
+  viewW: number,
+): boolean {
+  const r = aiInspectButtonRect(viewW);
+  return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+}
+
+export function enemyKindButtonRect(kind: EnemyKindButton, viewW: number): Rect {
+  // Sits LEFT of the AI inspect button, same row. Group reads claude→codex→scripted.
+  const idx = ENEMY_KIND_BTN_ORDER.indexOf(kind);
+  const inspectBtn = aiInspectButtonRect(viewW);
+  const groupRight = inspectBtn.x - ENEMY_KIND_BTN_GROUP_GAP;
+  const groupLeft = groupRight - ENEMY_KIND_BTN_GROUP_W;
+  const x = groupLeft + idx * (ENEMY_KIND_BTN_W + ENEMY_KIND_BTN_GAP);
+  return { x, y: SPEED_BTN_Y, w: ENEMY_KIND_BTN_W, h: ENEMY_KIND_BTN_H };
+}
+
+export function findEnemyKindButtonAt(
+  x: number,
+  y: number,
+  viewW: number,
+): EnemyKindButton | null {
+  for (const kind of ENEMY_KIND_BTN_ORDER) {
+    const r = enemyKindButtonRect(kind, viewW);
+    if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return kind;
+  }
+  return null;
+}
+
+function enemyKindGroupRect(viewW: number): Rect {
+  const inspectBtn = aiInspectButtonRect(viewW);
+  const groupRight = inspectBtn.x - ENEMY_KIND_BTN_GROUP_GAP;
+  const groupLeft = groupRight - ENEMY_KIND_BTN_GROUP_W;
+  return {
+    x: groupLeft,
+    y: SPEED_BTN_Y,
+    w: ENEMY_KIND_BTN_GROUP_W,
+    h: ENEMY_KIND_BTN_H,
+  };
 }
 
 export interface Rect {
@@ -81,6 +195,30 @@ export function isPointOverHud(
   ) {
     return true;
   }
+  // Reserve the AI inspect button (sits to the LEFT of resource counters).
+  const btn = aiInspectButtonRect(viewW);
+  if (x >= btn.x && x < btn.x + btn.w && y >= btn.y && y < btn.y + btn.h) {
+    return true;
+  }
+  // Reserve the enemy-kind button group (Claude / Codex / Scripted) which sits
+  // immediately LEFT of the AI inspect button.
+  const grp = enemyKindGroupRect(viewW);
+  if (x >= grp.x && x < grp.x + grp.w && y >= grp.y && y < grp.y + grp.h) {
+    return true;
+  }
+  // Reserve the AI inspector HTML overlay region when the panel is open. The
+  // DOM element captures its own clicks via pointer-events:auto, but the canvas
+  // mouse-move handler still uses isPointOverHud to decide if drag-select /
+  // hover-cell logic should fire — without this clause the user sees ghost
+  // selection rectangles starting under the panel.
+  const insp = aiInspectorPanelRect();
+  if (insp && x >= insp.x && x < insp.x + insp.w && y >= insp.y && y < insp.y + insp.h) {
+    return true;
+  }
+  // Reserve the minimap so edge-pan / drag-preview / cursor-hover suppress
+  // when the cursor is over it (handler.ts adds the equivalent click-time
+  // guard so drag-select doesn't fire from inside the minimap).
+  if (isPointInMinimap(x, y, viewW, viewH)) return true;
   return false;
 }
 
@@ -124,6 +262,8 @@ export function drawHUD(
   viewH: number,
   speedFactor: SpeedFactor,
   mouseScreen: { x: number; y: number } | null,
+  paused: boolean = false,
+  camera: Camera | null = null,
 ): void {
   // top-left: fps + tick (debug only)
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -145,8 +285,10 @@ export function drawHUD(
   ctx.fillStyle = '#34c8b0';
   ctx.fillText(`mineral: ${world.resources.player}`, viewW - 10, 8);
   ctx.fillStyle = '#1ad1c2';
-  ctx.fillText(`gas:     ${world.gas}`, viewW - 10, 26);
+  ctx.fillText(`gas:     ${world.gas.player}`, viewW - 10, 26);
   ctx.textAlign = 'start';
+  drawEnemyKindButtons(ctx, viewW, hud.activeEnemyKind ?? null, hud.enemyWarming === true);
+  drawAiInspectButton(ctx, viewW, hud.aiInspectorOpen === true);
 
   // bottom panel
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -159,6 +301,31 @@ export function drawHUD(
 
   const queuePanel = computeProductionQueuePanel(world, viewW, viewH, PANEL_H);
   if (queuePanel) drawProductionQueuePanel(ctx, queuePanel);
+
+  // Inspector lives in the DOM (HTML overlay) rather than canvas — collapsible
+  // sections + per-command click colors are unworkable on raw 2D context. Sync
+  // every frame: the function is idempotent and content only changes ~once / 5s
+  // so the DOM-write churn is negligible.
+  const aiHook = hud.aiInspectorOpen
+    ? (window as unknown as { __aiInspect?: InspectableLLMPlayer | null }).__aiInspect ?? null
+    : null;
+  syncAIInspectorPanel(
+    hud.aiInspectorOpen === true,
+    aiHook
+      ? {
+          exchanges: aiHook.recentExchanges(),
+          decisions: aiHook.recentDecisions(),
+          phase: aiHook.lastBuildPhase(),
+        }
+      : null,
+  );
+
+  // Minimap sits above the bottom HUD panel (bottom-right). Skip while the
+  // enemy-select modal is up so the dimmed overlay reads cleanly. Gated on
+  // camera being supplied — older test paths invoke drawHUD without one.
+  if (camera && !isEnemySelectOverlayActive(hud)) {
+    drawMinimap(ctx, world, camera);
+  }
 
   // placement hint
   if (world.placement) {
@@ -182,10 +349,44 @@ export function drawHUD(
     ctx.textAlign = 'start';
   }
 
+  if (paused) {
+    drawPausedIndicator(ctx, viewW);
+  }
+
   if (mouseScreen) {
     const hovered = findButtonAt(hud, mouseScreen.x, mouseScreen.y);
     if (hovered) drawTooltip(ctx, hovered);
   }
+
+  // Modal overlay LAST so it sits above everything (including the AI inspector
+  // HTML overlay's z-index for canvas-drawn items). Once user picks an AI and
+  // activeEnemyKind flips off 'none', this is a no-op.
+  if (isEnemySelectOverlayActive(hud)) {
+    drawEnemySelectOverlay(ctx, viewW, viewH, hud);
+  }
+}
+
+function drawPausedIndicator(ctx: CanvasRenderingContext2D, viewW: number): void {
+  const label = 'PAUSED';
+  const padX = 14;
+  const padY = 6;
+  const cx = viewW / 2;
+  ctx.font = 'bold 18px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const w = ctx.measureText(label).width + padX * 2;
+  const h = 18 + padY * 2;
+  const x = cx - w / 2;
+  const y = 8;
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#f0c040';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.fillStyle = '#f0c040';
+  ctx.fillText(label, cx, y + padY);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
 }
 
 function drawSelectionInfo(
@@ -272,6 +473,94 @@ function drawButtons(ctx: CanvasRenderingContext2D, buttons: UIButton[]): void {
   ctx.textBaseline = 'alphabetic';
 }
 
+function drawEnemyKindButtons(
+  ctx: CanvasRenderingContext2D,
+  viewW: number,
+  active: EnemyKind | null,
+  warming: boolean,
+): void {
+  const grp = enemyKindGroupRect(viewW);
+  // Backdrop spans the full button band (matches the AI inspect button strip
+  // styling) so the buttons read at the top edge instead of floating.
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(grp.x - 4, 0, grp.w + 8, TOP_RIGHT_H);
+  ctx.font = 'bold 11px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // 'none' = nothing selected: render all three even more dimly so the user
+  // can tell the difference between "you picked X, others are off" and "you
+  // haven't picked anyone yet". Same geometry, lower opacity fill + faded text.
+  const noneActive = active === 'none' || active === null;
+  for (const kind of ENEMY_KIND_BTN_ORDER) {
+    const r = enemyKindButtonRect(kind, viewW);
+    const isActive = kind === active;
+    if (isActive) {
+      // Yellow highlight = active.
+      ctx.fillStyle = 'rgba(240,192,64,0.35)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = '#f0c040';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+      ctx.fillStyle = '#ffffff';
+    } else if (noneActive) {
+      // Off / dim — no kind picked yet. Lower opacity than the regular
+      // "another kind is active" gray so the user reads it as inert.
+      ctx.fillStyle = 'rgba(60,60,60,0.18)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = '#3a3a3a';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+      ctx.fillStyle = '#888';
+    } else {
+      // Some other kind is active — standard inactive gray.
+      ctx.fillStyle = 'rgba(80,80,80,0.25)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+      ctx.fillStyle = '#bbb';
+    }
+    ctx.fillText(ENEMY_KIND_LABELS[kind], r.x + r.w / 2, r.y + r.h / 2);
+  }
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
+  if (warming) {
+    // "warming…" badge sits directly under the active button band; only LLM
+    // players ever set this so we don't need to gate per-kind.
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#f0c040';
+    ctx.fillText('warming…', grp.x + grp.w / 2, grp.y + grp.h + 4);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+}
+
+function drawAiInspectButton(
+  ctx: CanvasRenderingContext2D,
+  viewW: number,
+  open: boolean,
+): void {
+  const r = aiInspectButtonRect(viewW);
+  // Same dark backdrop the speed/resource block uses so the button reads at the
+  // top of the canvas instead of floating over world art.
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(r.x - 4, 0, r.w + 8, TOP_RIGHT_H);
+  ctx.fillStyle = open ? 'rgba(124,240,124,0.30)' : 'rgba(255,255,255,0.10)';
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = open ? '#7cf07c' : 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+  ctx.font = 'bold 11px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = open ? '#7cf07c' : '#e0e0e0';
+  ctx.fillText('AI', r.x + r.w / 2, r.y + r.h / 2);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
+}
+
 function drawSpeedButtons(
   ctx: CanvasRenderingContext2D,
   viewW: number,
@@ -306,7 +595,12 @@ function buildButtonLabel(
   ctx: CanvasRenderingContext2D,
   action: UIAction,
 ): string {
-  const name = actionDisplayName(action);
+  // CommandCenter renders as "CC" on the button — "Command Center" overruns the
+  // 92px button width even before the hotkey hint. Tooltip header stays full.
+  const name =
+    action.type === 'beginPlace' && action.building === 'commandCenter'
+      ? 'CC'
+      : actionDisplayName(action);
   const hotkey = ACTION_HOTKEYS[actionKey(action)];
   if (!hotkey) return name;
   const withHotkey = `${name} [${hotkey}]`;
@@ -371,7 +665,7 @@ function computeButtons(
     const medicGas = medicDef.gasCost ?? 0;
     addBtn(
       { type: 'produce', unit: 'medic' },
-      world.resources.player >= medicDef.cost && world.gas >= medicGas,
+      world.resources.player >= medicDef.cost && world.gas.player >= medicGas,
     );
   }
   if (e.kind === 'factory' && !e.underConstruction) {
@@ -379,28 +673,32 @@ function computeButtons(
     const gas = def.gasCost ?? 0;
     addBtn(
       { type: 'produce', unit: 'tank' },
-      world.resources.player >= def.cost && world.gas >= gas,
+      world.resources.player >= def.cost && world.gas.player >= gas,
     );
     const lightDef = UNIT_PRODUCTION['tank-light']!;
     const lightGas = lightDef.gasCost ?? 0;
     addBtn(
       { type: 'produce', unit: 'tank-light' },
-      world.resources.player >= lightDef.cost && world.gas >= lightGas,
+      world.resources.player >= lightDef.cost && world.gas.player >= lightGas,
     );
   }
   if (e.kind === 'worker') {
+    // commandCenter included for expansion (Phase 51-A): same beginPlace pathway,
+    // 15×15 footprint handled by canPlace via def.w/h. Label shortens to "CC" so
+    // it fits the 92px button width.
     for (const k of [
       'barracks',
       'turret',
       'refinery',
       'factory',
       'supplyDepot',
+      'commandCenter',
     ] as BuildingKind[]) {
       const def = BUILDING_DEFS[k];
       const gas = def.gasCost ?? 0;
       addBtn(
         { type: 'beginPlace', building: k },
-        world.resources.player >= def.cost && world.gas >= gas,
+        world.resources.player >= def.cost && world.gas.player >= gas,
       );
     }
   }

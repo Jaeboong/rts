@@ -10,13 +10,14 @@ import {
 } from '../types';
 import { TILE_DEFS } from './map/tiles';
 import type { TileKind } from './map/types';
+import { createSpatialGrid, type SpatialGrid } from './systems/spatial-grid';
 
 export interface World {
   tickCount: number;
   entities: Map<EntityId, Entity>;
   nextId: number;
   resources: Record<Team, number>;
-  gas: number;
+  gas: Record<Team, number>;
   occupancy: Int32Array;
   // Per-cell tile kind (length = GRID_W * GRID_H). Default 'grass-1' on creation;
   // map presets overwrite via applyMap() at scene load. Read by pathfinding.
@@ -24,6 +25,9 @@ export interface World {
   selection: Set<EntityId>;
   placement: { team: Team; buildingKind: BuildingKind } | null;
   attackMode: boolean;
+  // Broad-phase spatial index — rebuilt on demand by combat/collision systems.
+  // See systems/spatial-grid.ts for invariants on freshness vs lazy fill.
+  spatialGrid: SpatialGrid;
 }
 
 export function createWorld(): World {
@@ -38,12 +42,15 @@ export function createWorld(): World {
     entities: new Map(),
     nextId: 1,
     resources: { player: 500, enemy: 0, neutral: 0 },
-    gas: 200,
+    // Per-team gas. Enemy starts at 0 by design — they MUST build a refinery
+    // before producing tank/medic (Phase 43: removes the previous gas waiver).
+    gas: { player: 200, enemy: 0, neutral: 0 },
     occupancy: occ,
     tiles,
     selection: new Set(),
     placement: null,
     attackMode: false,
+    spatialGrid: createSpatialGrid(),
   };
 }
 
@@ -136,4 +143,26 @@ export function findEntitiesByTeam(world: World, team: Team): Entity[] {
   const out: Entity[] = [];
   for (const e of world.entities.values()) if (e.team === team) out.push(e);
   return out;
+}
+
+// Phase 53: in-place reset to createWorld() defaults — used when the user picks
+// a custom map in the AI-selector modal. Mutates rather than reallocating so
+// existing references (game.world, window.__world) stay valid; tiles/entities
+// get repainted by the caller right after.
+export function resetWorld(world: World): void {
+  world.tickCount = 0;
+  world.entities.clear();
+  world.nextId = 1;
+  world.resources.player = 500;
+  world.resources.enemy = 0;
+  world.resources.neutral = 0;
+  world.gas.player = 200;
+  world.gas.enemy = 0;
+  world.gas.neutral = 0;
+  world.occupancy.fill(-1);
+  for (let i = 0; i < world.tiles.length; i++) world.tiles[i] = 'grass-1';
+  world.selection.clear();
+  world.placement = null;
+  world.attackMode = false;
+  world.spatialGrid = createSpatialGrid();
 }

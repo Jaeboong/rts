@@ -29,6 +29,7 @@ export type {
   MapPreset,
 } from './types';
 export { westernFrontPreset } from './presets/western-front';
+export { expansionFrontPreset } from './presets/expansion-front';
 
 // Push tiles into world.tiles in-place, then realize each SpawnSpec via the
 // existing entity factories. CellX/cellY for unit spawns is interpreted as the

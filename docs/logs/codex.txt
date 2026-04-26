@@ -1,0 +1,8 @@
+job-id: task-mofp1o55-783tti
+session-id: 019dc994-939e-7df0-a120-1f338a127cd4
+log: /c/Users/cbkjh/.claude/plugins/data/codex-openai-codex/state/rts2-8f32c147f525ca6c/jobs/task-mofp1o55-783tti.log
+plan: docs/plans/2026-04-26-map-editor.md
+model: gpt-5.5 xhigh
+
+resume: codex resume 019dc994-939e-7df0-a120-1f338a127cd4
+or:     node "$COMPANION" task --background --write --resume-last "추가 지시"

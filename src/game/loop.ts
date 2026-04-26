@@ -1,5 +1,6 @@
 import { renderWorld } from '../render/renderer';
 import type { SpriteAtlas } from '../render/sprites';
+import { isEnemySelectOverlayActive } from '../render/enemy-select-overlay';
 import { drawHUD, isPointOverHud, type HUDState } from '../render/ui';
 import { createCamera, panBy, screenToWorld, setViewport, type Camera } from './camera';
 import {
@@ -25,11 +26,21 @@ export interface Game {
   input: InputState;
   hud: HUDState;
   speedFactor: SpeedFactor;
+  // F10 toggle. While true, the loop skips runPlayers + onTick so the sim
+  // freezes and NanoclawPlayer.tick() is not called (no new HTTP requests).
+  // In-flight LLM requests still resolve into the player's buffer and drain
+  // on the first post-resume tick.
+  paused: boolean;
   atlas: SpriteAtlas | null;
   tileAtlas: AutotileAtlas | null;
   players: Player[];
   onUpdate?: (game: Game, dt: number) => void;
   onTick?: (game: Game) => void;
+  // Phase 42: lets the HUD highlight the active enemy AI button without
+  // pulling main.ts. Installed by main.ts; null/undefined when not wired up
+  // (e.g., test harnesses that don't run the full bootstrap). 'none' = no
+  // enemy AI selected yet (Phase 42-D: lazy startup — user must click a button).
+  activeEnemyKind?: () => 'none' | 'claude' | 'codex' | 'scripted';
 }
 
 export const TICK_HZ = 20;
@@ -52,6 +63,7 @@ export function createGame(
     input: createInput(canvas),
     hud: { fps: 0, tickCount: 0, buttons: [] },
     speedFactor: 1,
+    paused: false,
     atlas,
     tileAtlas,
     players: [],
@@ -94,20 +106,26 @@ export function startGame(game: Game): void {
     if (game.onUpdate) game.onUpdate(game, dt);
     consumeFrame(game.input);
 
-    const advance = advanceTickAccumulator(
-      acc,
-      dt,
-      game.speedFactor,
-      TICK_MS,
-      MAX_CATCHUP_MS,
-    );
-    acc = advance.acc;
-    for (let t = 0; t < advance.ticks; t++) {
-      // Players run BEFORE onTick (which runs the simulation systems) so any
-      // command they emit takes effect on the same tick — no one-tick lag.
-      runPlayers(game.world, game.players, TICK_DT);
-      if (game.onTick) game.onTick(game);
-      game.world.tickCount++;
+    // AI selector overlay (startup or backend-starting state) freezes the sim
+    // — otherwise the world progresses while user picks/waits, draining gather
+    // and giving free time to whichever side has units already moving.
+    const overlayBlocking = isEnemySelectOverlayActive(game.hud);
+    if (!game.paused && !overlayBlocking) {
+      const advance = advanceTickAccumulator(
+        acc,
+        dt,
+        game.speedFactor,
+        TICK_MS,
+        MAX_CATCHUP_MS,
+      );
+      acc = advance.acc;
+      for (let t = 0; t < advance.ticks; t++) {
+        // Players run BEFORE onTick (which runs the simulation systems) so any
+        // command they emit takes effect on the same tick — no one-tick lag.
+        runPlayers(game.world, game.players, TICK_DT);
+        if (game.onTick) game.onTick(game);
+        game.world.tickCount++;
+      }
     }
 
     fpsAcc += dt;
@@ -191,7 +209,13 @@ function render(game: Game): void {
     : null;
   renderWorld(ctx, world, camera, drag, mouseWorld, game.atlas, game.tileAtlas);
   const mouseScreen = input.mouseInside ? input.mouse : null;
-  drawHUD(ctx, world, hud, camera.viewW, camera.viewH, game.speedFactor, mouseScreen);
+  // Refresh HUD-side mirrors of the runtime enemy selector right before draw.
+  // Reads are cheap getters; the player only exists at index 1 once main.ts
+  // has bootstrapped, so guard against the empty-roster startup frame.
+  if (game.activeEnemyKind) hud.activeEnemyKind = game.activeEnemyKind();
+  const enemy = game.players[1];
+  hud.enemyWarming = enemy && typeof enemy.isWarming === 'function' ? enemy.isWarming() : false;
+  drawHUD(ctx, world, hud, camera.viewW, camera.viewH, game.speedFactor, mouseScreen, game.paused, camera);
   const desiredCursor = world.attackMode ? 'crosshair' : 'default';
   if (canvas.style.cursor !== desiredCursor) canvas.style.cursor = desiredCursor;
 }

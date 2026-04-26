@@ -23,14 +23,16 @@ function stepMany(world: ReturnType<typeof createWorld>, seconds: number): void 
 
 // Test helper: spawn a node with a fully-built depot on top so workers can gather it.
 // Mirrors what `confirmPlacement('supplyDepot')` does at runtime, minus the construction step.
+// `team` lets cross-team theft tests stage enemy-owned depot claims.
 function spawnNodeWithDepot(
   world: World,
   cellX: number,
   cellY: number,
   remaining = 1500,
+  team: 'player' | 'enemy' = 'player',
 ): { node: Entity; depot: Entity } {
   const node = spawnMineralNode(world, cellX, cellY, remaining);
-  const depot = spawnBuilding(world, 'supplyDepot', 'player', cellX, cellY);
+  const depot = spawnBuilding(world, 'supplyDepot', team, cellX, cellY);
   node.depotId = depot.id;
   depot.mineralNodeId = node.id;
   return { node, depot };
@@ -147,7 +149,7 @@ describe('gather depot indirection', () => {
     expect(worker.gatherSubState).toBe('toNode');
   });
 
-  it('right-click on supplyDepot under construction → gather rejected, command cleared', () => {
+  it('right-click on supplyDepot under construction → enters waitForDepot, walks to perimeter', () => {
     const w = createWorld();
     spawnBuilding(w, 'commandCenter', 'player', 10, 10);
     const node = spawnMineralNode(w, 35, 40, 1500);
@@ -159,12 +161,15 @@ describe('gather depot indirection', () => {
 
     gatherSystem(w, 1 / 20);
 
-    // No other depot in the world, so init falls through and clears command.
-    expect(worker.command).toBeNull();
-    expect(worker.gatherSubState).toBeUndefined();
+    // gatherNodeId is overloaded to the depot id during waitForDepot.
+    expect(worker.gatherSubState).toBe('waitForDepot');
+    expect(worker.gatherNodeId).toBe(depot.id);
+    expect(worker.command).not.toBeNull();
+    expect(worker.path).not.toBeNull();
+    expect(worker.path!.length).toBeGreaterThan(0);
   });
 
-  it('right-click on raw mineralNode whose depot is under construction → gather rejected', () => {
+  it('right-click on raw mineralNode whose depot is under construction → waitForDepot', () => {
     const w = createWorld();
     spawnBuilding(w, 'commandCenter', 'player', 10, 10);
     const node = spawnMineralNode(w, 35, 40, 1500);
@@ -176,11 +181,12 @@ describe('gather depot indirection', () => {
 
     gatherSystem(w, 1 / 20);
 
-    expect(worker.command).toBeNull();
-    expect(worker.gatherSubState).toBeUndefined();
+    expect(worker.gatherSubState).toBe('waitForDepot');
+    expect(worker.gatherNodeId).toBe(depot.id);
+    expect(worker.command).not.toBeNull();
   });
 
-  it('completing the depot lets a fresh gather command resolve normally', () => {
+  it('depot completion while waitForDepot → flips to toNode against the underlying mineral', () => {
     const w = createWorld();
     spawnBuilding(w, 'commandCenter', 'player', 10, 10);
     const node = spawnMineralNode(w, 35, 40, 1500);
@@ -189,20 +195,71 @@ describe('gather depot indirection', () => {
     depot.mineralNodeId = node.id;
     const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
 
-    // First attempt while under construction → rejected.
     worker.command = { type: 'gather', nodeId: depot.id };
     gatherSystem(w, 1 / 20);
-    expect(worker.command).toBeNull();
+    expect(worker.gatherSubState).toBe('waitForDepot');
+    expect(worker.gatherNodeId).toBe(depot.id);
 
-    // Complete the depot.
+    // Complete the depot mid-wait — the next tick should transition to toNode.
     depot.underConstruction = false;
     depot.hp = depot.hpMax;
+    // Drain pending path so the waitForDepot branch is the source of the transition.
+    worker.path = [];
 
-    // Second attempt → resolves to underlying node.
-    worker.command = { type: 'gather', nodeId: depot.id };
     gatherSystem(w, 1 / 20);
-    expect(worker.gatherNodeId).toBe(node.id);
     expect(worker.gatherSubState).toBe('toNode');
+    expect(worker.gatherNodeId).toBe(node.id);
+  });
+
+  it('depot dies mid-wait → worker falls back to nearest gatherable node', () => {
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const dyingNode = spawnMineralNode(w, 35, 40, 1500);
+    const dyingDepot = spawnBuilding(w, 'supplyDepot', 'player', 35, 40, false);
+    dyingNode.depotId = dyingDepot.id;
+    dyingDepot.mineralNodeId = dyingNode.id;
+    // A second, fully-built depot+node within auto-repath radius.
+    const altNode = spawnMineralNode(w, 41, 40, 1500);
+    const altDepot = spawnBuilding(w, 'supplyDepot', 'player', 41, 40);
+    altNode.depotId = altDepot.id;
+    altDepot.mineralNodeId = altNode.id;
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+
+    worker.command = { type: 'gather', nodeId: dyingDepot.id };
+    gatherSystem(w, 1 / 20);
+    expect(worker.gatherSubState).toBe('waitForDepot');
+
+    // Mark depot dead and break the link the way cleanupDead would.
+    dyingNode.depotId = null;
+    dyingDepot.dead = true;
+    w.entities.delete(dyingDepot.id);
+
+    gatherSystem(w, 1 / 20);
+    // Fallback redirected to the nearest remaining gatherable node.
+    expect(worker.gatherSubState).toBe('toNode');
+    expect(worker.gatherNodeId).toBe(altNode.id);
+  });
+
+  it('depot dies mid-wait, no fallback in radius → worker idles', () => {
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const dyingNode = spawnMineralNode(w, 35, 40, 1500);
+    const dyingDepot = spawnBuilding(w, 'supplyDepot', 'player', 35, 40, false);
+    dyingNode.depotId = dyingDepot.id;
+    dyingDepot.mineralNodeId = dyingNode.id;
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+
+    worker.command = { type: 'gather', nodeId: dyingDepot.id };
+    gatherSystem(w, 1 / 20);
+    expect(worker.gatherSubState).toBe('waitForDepot');
+
+    dyingNode.depotId = null;
+    dyingDepot.dead = true;
+    w.entities.delete(dyingDepot.id);
+
+    gatherSystem(w, 1 / 20);
+    expect(worker.gatherSubState).toBeUndefined();
+    expect(worker.command).toBeNull();
   });
 
   it('mining a depleted depot-claimed node does NOT mark it dead (depot would lose footprint)', () => {
@@ -220,6 +277,112 @@ describe('gather depot indirection', () => {
     expect((node.remaining ?? 0)).toBe(0);
     // Critical: must NOT be dead — otherwise removeEntity would zero the depot's occupancy cells.
     expect(node.dead).not.toBe(true);
+  });
+});
+
+describe('gather cross-team theft block', () => {
+  // Bug regression: a player worker that right-clicked an enemy-team supplyDepot
+  // (or its underlying mineralNode) used to mine that node and deposit the ore
+  // back to the player's CC, draining enemy resources for free. The init branch
+  // now requires depot.team === worker.team, and falls back to findNearestMineralNode
+  // (own-team only) when the click is rejected.
+
+  it('enemy-team supplyDepot direct click → gather rejected (no waitForDepot, idle)', () => {
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const { depot: enemyDepot } = spawnNodeWithDepot(w, 35, 40, 1500, 'enemy');
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: enemyDepot.id };
+
+    gatherSystem(w, DT);
+
+    // No own-team depot anywhere → fallback finds nothing → command cleared.
+    // Critical: must NOT be in waitForDepot — that would camp on the enemy depot.
+    expect(worker.command).toBeNull();
+    expect(worker.gatherSubState).toBeUndefined();
+  });
+
+  it('enemy-team mineralNode click (claimed by enemy depot) → gather rejected, idle', () => {
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const { node: enemyNode } = spawnNodeWithDepot(w, 35, 40, 1500, 'enemy');
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: enemyNode.id };
+
+    gatherSystem(w, DT);
+
+    expect(worker.command).toBeNull();
+    expect(worker.gatherSubState).toBeUndefined();
+  });
+
+  it('enemy-team under-construction depot click → does NOT enter waitForDepot', () => {
+    // Without the team check, an enemy depot being built would put the player worker
+    // into waitForDepot, parking it next to the enemy base waiting to steal.
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const enemyNode = spawnMineralNode(w, 35, 40, 1500);
+    const enemyDepot = spawnBuilding(w, 'supplyDepot', 'enemy', 35, 40, false);
+    enemyNode.depotId = enemyDepot.id;
+    enemyDepot.mineralNodeId = enemyNode.id;
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: enemyDepot.id };
+
+    gatherSystem(w, DT);
+
+    expect(worker.gatherSubState).not.toBe('waitForDepot');
+    expect(worker.command).toBeNull();
+  });
+
+  it('enemy-team depot click WITH own-team fallback → routes to own-team node', () => {
+    // Demonstrates the fallback path: enemy click rejected, then findNearestMineralNode
+    // picks the player-team node instead of clearing the command.
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const { depot: enemyDepot } = spawnNodeWithDepot(w, 35, 40, 1500, 'enemy');
+    const { node: ownNode } = spawnNodeWithDepot(w, 41, 40, 1500, 'player');
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: enemyDepot.id };
+
+    gatherSystem(w, DT);
+
+    expect(worker.gatherNodeId).toBe(ownNode.id);
+    expect(worker.gatherSubState).toBe('toNode');
+  });
+
+  it('regression: own-team depot click still gathers normally (no false positive)', () => {
+    // Locks in the same-team behavior to catch any future over-strict team check.
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const { node, depot } = spawnNodeWithDepot(w, 35, 40, 1500, 'player');
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: depot.id };
+
+    gatherSystem(w, DT);
+
+    expect(worker.gatherNodeId).toBe(node.id);
+    expect(worker.gatherSubState).toBe('toNode');
+  });
+
+  it('auto-repath after depletion ignores enemy-team alt within radius', () => {
+    // findNearestMineralInRadius (post-mining auto-repath) must also filter by team.
+    const w = createWorld();
+    spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    const { node: primary } = spawnNodeWithDepot(w, 35, 40, 100, 'player');
+    // Within radius but enemy-claimed → must NOT be picked.
+    const { node: enemyAlt } = spawnNodeWithDepot(w, 41, 40, 1500, 'enemy');
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(35, 40));
+    worker.command = { type: 'gather', nodeId: primary.id };
+    worker.gatherSubState = 'mining';
+    worker.gatherTimer = 0.01;
+    worker.gatherNodeId = primary.id;
+    primary.remaining = 0;
+
+    gatherSystem(w, 1 / 20);
+
+    // No own-team alt in radius → idles. Enemy alt must NOT be selected.
+    expect(worker.gatherSubState).toBeUndefined();
+    expect(worker.gatherNodeId).not.toBe(enemyAlt.id);
+    expect(worker.command).toBeNull();
   });
 });
 
