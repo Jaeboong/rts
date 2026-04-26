@@ -87,11 +87,10 @@ describe('westernFrontPreset', () => {
     expect(workers).toHaveLength(4);
   });
 
-  it('contains 2-3 enemy dummies near enemy main', () => {
+  it('does not seed any enemyDummy spawns (Phase 39: real ScriptedAI replaces them)', () => {
     const { spawns } = westernFrontPreset.generate(SEED);
     const dummies = spawns.filter((s) => s.kind === 'enemyDummy');
-    expect(dummies.length).toBeGreaterThanOrEqual(2);
-    expect(dummies.length).toBeLessThanOrEqual(3);
+    expect(dummies).toHaveLength(0);
   });
 
   it('no spawn placed on a water cell', () => {

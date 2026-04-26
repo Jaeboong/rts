@@ -7,7 +7,11 @@ import {
   pickResourceSprite,
   pickUnitSprite,
   SPRITE_FILES,
+  SPRITE_VARIANT_GROUPS,
   TEAM_TINT,
+  unifyVariantBboxes,
+  unionBbox,
+  type SpriteBbox,
   type SpriteKey,
 } from './sprites';
 
@@ -311,5 +315,38 @@ describe('TEAM_TINT', () => {
     expect(TEAM_TINT.player).not.toBe(TEAM_TINT.enemy);
     expect(TEAM_TINT.player).toMatch(/^#[0-9a-f]{6}$/i);
     expect(TEAM_TINT.enemy).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+});
+
+describe('unionBbox', () => {
+  it('returns a rect spanning both inputs', () => {
+    const a: SpriteBbox = { sx: 10, sy: 20, sw: 30, sh: 40 };
+    const b: SpriteBbox = { sx: 5, sy: 25, sw: 50, sh: 30 };
+    expect(unionBbox(a, b)).toEqual({ sx: 5, sy: 20, sw: 50, sh: 40 });
+  });
+
+  it('is idempotent on identical input', () => {
+    const a: SpriteBbox = { sx: 0, sy: 0, sw: 64, sh: 64 };
+    expect(unionBbox(a, a)).toEqual(a);
+  });
+});
+
+describe('unifyVariantBboxes', () => {
+  it('overwrites every variant in a group with the merged bbox', () => {
+    const stub: SpriteBbox = { sx: 0, sy: 0, sw: 1, sh: 1 };
+    const bbox = Object.fromEntries(
+      (Object.keys(SPRITE_FILES) as SpriteKey[]).map((k) => [k, { ...stub }]),
+    ) as Record<SpriteKey, SpriteBbox>;
+    bbox['factory-idle'] = { sx: 10, sy: 10, sw: 80, sh: 80 };
+    bbox['factory-producing'] = { sx: 5, sy: 8, sw: 100, sh: 90 };
+    unifyVariantBboxes(bbox);
+    const expected = { sx: 5, sy: 8, sw: 100, sh: 90 };
+    expect(bbox['factory-idle']).toEqual(expected);
+    expect(bbox['factory-producing']).toEqual(expected);
+  });
+
+  it('factory + barracks + commandCenter + turret variant pairs all unify', () => {
+    expect(SPRITE_VARIANT_GROUPS.length).toBe(4);
+    for (const group of SPRITE_VARIANT_GROUPS) expect(group.length).toBeGreaterThanOrEqual(2);
   });
 });

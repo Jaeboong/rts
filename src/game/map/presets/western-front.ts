@@ -220,32 +220,6 @@ function placeBase(
       }
     }
   }
-  if (anchor.kind === 'main' && team === 'enemy') {
-    const dummyCount = 2 + rng.range(2); // 2..3
-    let placed = 0;
-    let dummyAttempts = 0;
-    while (placed < dummyCount && dummyAttempts < 40) {
-      dummyAttempts++;
-      const dx = jittered.cellX + CC_SIZE + rng.jitter(3);
-      const dy = jittered.cellY + rng.jitter(3);
-      if (
-        tryPlaceSpawn(
-          spawns,
-          tiles,
-          {
-            kind: 'enemyDummy',
-            team: 'enemy',
-            cellX: clamp(dx, 0, W - 1),
-            cellY: clamp(dy, 0, H - 1),
-          },
-          1,
-          1,
-        )
-      ) {
-        placed++;
-      }
-    }
-  }
 }
 
 function center5(j: { cellX: number; cellY: number }): CellPoint {

@@ -3,7 +3,7 @@ import { CELL } from '../../types';
 import { UNIT_DEFS } from '../balance';
 import { spawnBuilding, spawnUnit } from '../entities';
 import { cellToPx, createWorld } from '../world';
-import { combatSystem } from './combat';
+import { combatSystem, hasHostileInAttackRange } from './combat';
 import { movementSystem, resetRepathTimers } from './movement';
 
 const DT = 1 / 20;
@@ -234,6 +234,60 @@ describe('combat pursuit drift repath', () => {
 
     expect(e.hp).toBeLessThan(startHp);
     expect(m.path).toBeNull();
+  });
+});
+
+describe('autoAcquire target priority (attackers > passives)', () => {
+  it('marine prefers a farther enemy marine over a nearby enemy CC', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    // CC footprint at (11,8)-(25,22) — edge ~1 cell from me
+    spawnBuilding(w, 'commandCenter', 'enemy', 11, 8, false);
+    // Enemy marine 6 cells away, well inside sightRange
+    const enemyMarine = spawnUnit(w, 'marine', 'enemy', cellToPx(16, 10));
+
+    combatSystem(w, DT);
+
+    expect(me.attackTargetId).toBe(enemyMarine.id);
+  });
+
+  it('marine attacks enemy CC when no enemy attacker units are in sight', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    spawnBuilding(w, 'commandCenter', 'enemy', 11, 8, false);
+    spawnUnit(w, 'worker', 'enemy', cellToPx(13, 10));
+
+    combatSystem(w, DT);
+
+    // Falls back to nearest passive — could be CC or worker. Either is acceptable;
+    // the contract is "no attackers in sight ⇒ pick something passive".
+    expect(me.attackTargetId).not.toBeNull();
+    const t = w.entities.get(me.attackTargetId!);
+    expect((t?.attackRange ?? 0)).toBe(0);
+  });
+});
+
+describe('hasHostileInAttackRange', () => {
+  it('returns true when a hostile is inside attackRange', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    spawnUnit(w, 'enemyDummy', 'enemy', cellToPx(11, 10));
+    expect(hasHostileInAttackRange(w, me)).toBe(true);
+  });
+
+  it('returns false when hostile is sighted but outside attackRange', () => {
+    const w = createWorld();
+    const me = spawnUnit(w, 'marine', 'player', cellToPx(10, 10));
+    // marine attackRange = 10*CELL → 12 cells away is sighted-only
+    spawnUnit(w, 'enemyDummy', 'enemy', cellToPx(22, 10));
+    expect(hasHostileInAttackRange(w, me)).toBe(false);
+  });
+
+  it('returns false for units without attackRange', () => {
+    const w = createWorld();
+    const worker = spawnUnit(w, 'worker', 'player', cellToPx(10, 10));
+    spawnUnit(w, 'enemyDummy', 'enemy', cellToPx(11, 10));
+    expect(hasHostileInAttackRange(w, worker)).toBe(false);
   });
 });
 

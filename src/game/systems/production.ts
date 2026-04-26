@@ -43,7 +43,14 @@ function chooseRallyCommand(
   const occupantId = cellOccupant(world, cell.x, cell.y);
   const occupant = occupantId !== null ? world.entities.get(occupantId) : null;
 
-  if (occupant && occupant.kind === 'mineralNode' && unit.kind === 'worker') {
+  // SupplyDepot occupies the same cells as its host mineralNode and overwrites
+  // the occupancy index, so the rally check must accept it too — gather.ts
+  // resolves the depot to its underlying mineralNode internally.
+  if (
+    occupant &&
+    unit.kind === 'worker' &&
+    (occupant.kind === 'mineralNode' || occupant.kind === 'supplyDepot')
+  ) {
     return { type: 'gather', nodeId: occupant.id };
   }
   if (occupant) {

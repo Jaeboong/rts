@@ -1,7 +1,7 @@
 import type { Entity } from '../types';
 import { TICK_DT, type Game } from './loop';
 import { runCollisionSystem } from './systems/collision';
-import { combatSystem } from './systems/combat';
+import { combatSystem, hasHostileInAttackRange } from './systems/combat';
 import { constructionSystem } from './systems/construction';
 import { gatherSystem } from './systems/gather';
 import { runHealingSystem } from './systems/healing';
@@ -33,6 +33,13 @@ function driveCommands(world: World): void {
     switch (cmd.type) {
       case 'move':
       case 'attackMove': {
+        // attackMove engaged: hostile in fire range → let combat shoot, don't
+        // re-request path. Otherwise the unit creeps forward each tick because
+        // combat nullifies path after this runs.
+        if (cmd.type === 'attackMove' && hasHostileInAttackRange(world, e)) {
+          e.path = null;
+          break;
+        }
         if (e.path === null || e.path === undefined) {
           if (!requestPath(world, e, cmd.target)) {
             e.command = null;

@@ -145,6 +145,7 @@ export async function loadSprites(
   const bbox = Object.fromEntries(
     keys.map((k) => [k, computeOpaqueBbox(base[k])] as const),
   ) as Record<SpriteKey, SpriteBbox>;
+  unifyVariantBboxes(bbox);
   const tinted = new Map<string, SpriteImage>();
   return {
     base,
@@ -239,6 +240,40 @@ export function computeOpaqueBbox(img: SpriteImage): SpriteBbox {
   }
   if (maxX < 0) return fallback; // fully transparent — fall back to native dims
   return { sx: minX, sy: minY, sw: maxX - minX + 1, sh: maxY - minY + 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Variant bbox unification — buildings have idle/producing (or idle/attack)
+// PNG pairs that must render at the SAME visual scale. Without unification, the
+// producing PNG's smoke/glow extends the opaque bbox, so the entity footprint
+// stretch ratio differs between states and the building visually shrinks/grows.
+// Solution: union the variant bboxes and overwrite each variant's entry with
+// the union — same source rect → same scale across states.
+// ---------------------------------------------------------------------------
+
+export const SPRITE_VARIANT_GROUPS: readonly (readonly SpriteKey[])[] = [
+  ['commandCenter-idle', 'commandCenter-producing'],
+  ['barracks-idle', 'barracks-producing'],
+  ['factory-idle', 'factory-producing'],
+  ['turret-idle', 'turret-attack'],
+];
+
+export function unionBbox(a: SpriteBbox, b: SpriteBbox): SpriteBbox {
+  const minX = Math.min(a.sx, b.sx);
+  const minY = Math.min(a.sy, b.sy);
+  const maxX = Math.max(a.sx + a.sw, b.sx + b.sw);
+  const maxY = Math.max(a.sy + a.sh, b.sy + b.sh);
+  return { sx: minX, sy: minY, sw: maxX - minX, sh: maxY - minY };
+}
+
+export function unifyVariantBboxes(bbox: Record<SpriteKey, SpriteBbox>): void {
+  for (const group of SPRITE_VARIANT_GROUPS) {
+    const merged = group.reduce<SpriteBbox>(
+      (acc, k) => unionBbox(acc, bbox[k]),
+      bbox[group[0]],
+    );
+    for (const k of group) bbox[k] = merged;
+  }
 }
 
 // ---------------------------------------------------------------------------

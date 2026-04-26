@@ -95,21 +95,48 @@ export function combatSystem(world: World, dt: number): void {
   }
 }
 
+// Tiered: prefer hostiles that can shoot back (attackRange>0) — turret, marine,
+// tank, etc — over passive ones (worker, medic, building footprints). AABB-edge
+// distance otherwise lets a 4×4 CC's edge beat any unit at the building's side.
 function autoAcquire(world: World, e: Entity): EntityId | null {
   const range = e.sightRange ?? e.attackRange ?? 0;
-  let bestId: EntityId | null = null;
-  let bestD = range;
+  let bestAttackerId: EntityId | null = null;
+  let bestAttackerD = range;
+  let bestPassiveId: EntityId | null = null;
+  let bestPassiveD = range;
   for (const other of world.entities.values()) {
     if (other.id === e.id) continue;
     if (other.dead) continue;
     if (!isHostile(e, other)) continue;
     const d = dist(e, other);
-    if (d <= bestD) {
-      bestId = other.id;
-      bestD = d;
+    if (d > range) continue;
+    if ((other.attackRange ?? 0) > 0) {
+      if (d <= bestAttackerD) {
+        bestAttackerId = other.id;
+        bestAttackerD = d;
+      }
+    } else {
+      if (d <= bestPassiveD) {
+        bestPassiveId = other.id;
+        bestPassiveD = d;
+      }
     }
   }
-  return bestId;
+  return bestAttackerId !== null ? bestAttackerId : bestPassiveId;
+}
+
+// Used by simulate.driveCommands to suppress attackMove path re-issue while a
+// hostile is engageable. Without this, combat sets path=null but driveCommands
+// re-requests path the next tick, causing a fire-while-creeping oscillation.
+export function hasHostileInAttackRange(world: World, e: Entity): boolean {
+  if (e.attackRange === undefined) return false;
+  for (const other of world.entities.values()) {
+    if (other.id === e.id) continue;
+    if (other.dead) continue;
+    if (!isHostile(e, other)) continue;
+    if (dist(e, other) <= e.attackRange) return true;
+  }
+  return false;
 }
 
 // Path is stale if missing/empty OR target drifted ≥ 1 cell from where the path was aimed.

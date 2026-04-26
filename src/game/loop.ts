@@ -9,6 +9,8 @@ import {
   type InputState,
 } from './input';
 import type { AutotileAtlas } from './map/tiles';
+import { runPlayers } from './players/runner';
+import type { Player } from './players/types';
 import type { World } from './world';
 
 export const EDGE_PAN_THRESHOLD_PX = 20;
@@ -25,6 +27,7 @@ export interface Game {
   speedFactor: SpeedFactor;
   atlas: SpriteAtlas | null;
   tileAtlas: AutotileAtlas | null;
+  players: Player[];
   onUpdate?: (game: Game, dt: number) => void;
   onTick?: (game: Game) => void;
 }
@@ -51,6 +54,7 @@ export function createGame(
     speedFactor: 1,
     atlas,
     tileAtlas,
+    players: [],
   };
 }
 
@@ -99,6 +103,9 @@ export function startGame(game: Game): void {
     );
     acc = advance.acc;
     for (let t = 0; t < advance.ticks; t++) {
+      // Players run BEFORE onTick (which runs the simulation systems) so any
+      // command they emit takes effect on the same tick — no one-tick lag.
+      runPlayers(game.world, game.players, TICK_DT);
       if (game.onTick) game.onTick(game);
       game.world.tickCount++;
     }

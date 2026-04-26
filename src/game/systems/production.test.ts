@@ -118,6 +118,31 @@ describe('production rally dispatch', () => {
     expect(spawned.command).toEqual({ type: 'gather', nodeId: node.id });
   });
 
+  it('rallyPoint on supplyDepot + Worker → Gather (depot resolves to underlying mineralNode)', () => {
+    const w = createWorld();
+    const cc = spawnBuilding(w, 'commandCenter', 'player', 10, 10);
+    // Stamp a supplyDepot directly on the mineralNode footprint (mirrors hosted-build).
+    const node = spawnMineralNode(w, 30, 30);
+    const depot = spawnBuilding(w, 'supplyDepot', 'player', 30, 30);
+    node.depotId = depot.id;
+    depot.mineralNodeId = node.id;
+    cc.rallyPoint = { x: 30 * CELL + CELL / 2, y: 30 * CELL + CELL / 2 };
+    const def = UNIT_PRODUCTION.worker!;
+    cc.productionQueue!.push({
+      produces: 'worker',
+      totalSeconds: def.seconds,
+      remainingSeconds: def.seconds,
+    });
+
+    runUntilSpawn(w, def.seconds);
+
+    const spawned = [...w.entities.values()]
+      .reverse()
+      .find((e) => e.kind === 'worker')!;
+    // Gather targets the depot id; gather.ts resolves depot → underlying mineralNode.
+    expect(spawned.command).toEqual({ type: 'gather', nodeId: depot.id });
+  });
+
   it('rallyPoint on mineral cell + Marine → Move command clamped to walkable', () => {
     const w = createWorld();
     // Barracks (15×15) at (10,10) covers cells 10..24; place mineral at row 40 to clear it.
